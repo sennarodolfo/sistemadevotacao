@@ -1,0 +1,222 @@
+import { useEffect, useRef, useState } from 'react'
+import { Icon } from '../components/Icon'
+import jsPDF from 'jspdf'
+import * as XLSX from 'xlsx'
+
+export default function ResultsView({ results, sessionId, onSelectSession, electionName }) {
+  const barRef = useRef(null)
+  const pieRef = useRef(null)
+  const barChartRef = useRef(null)
+  const pieChartRef = useRef(null)
+
+  const session = results.find(r => r.session_id === sessionId) || results[0]
+  const candidates = session?.candidates || []
+  const blank = session?.blank_votes || 0
+  const totalValid = candidates.reduce((a, c) => a + c.votes, 0)
+  const totalAll = totalValid + blank
+  const totalVoters = session?.unique_voters || 0
+
+  useEffect(() => {
+    if (barChartRef.current) barChartRef.current.destroy()
+    if (pieChartRef.current) pieChartRef.current.destroy()
+
+    async function draw() {
+      const { default: Chart } = await import('chart.js/auto')
+      const colors = candidates.map((_, i) => `hsl(${(i*360)/Math.max(1,candidates.length)}, 70%, 55%)`)
+      const labels = candidates.map(c => c.name)
+      const data = candidates.map(c => c.votes)
+
+      if (barRef.current) {
+        barChartRef.current = new Chart(barRef.current, {
+          type: 'bar',
+          data: { labels, datasets: [{ label: 'Votos', data, backgroundColor: colors, borderRadius: 6 }] },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+        })
+      }
+      if (pieRef.current) {
+        const pieData = [...candidates.map(c => ({ name: c.name, votes: c.votes })), ...(blank > 0 ? [{ name: 'Branco', votes: blank }] : [])]
+        pieChartRef.current = new Chart(pieRef.current, {
+          type: 'pie',
+          data: { labels: pieData.map(c => c.name), datasets: [{ data: pieData.map(c => c.votes), backgroundColor: [...colors, '#94a3b8'], borderWidth: 2, borderColor: '#fff' }] },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: (ctx) => { const t = ctx.dataset.data.reduce((a,b)=>a+b,0); const p = t>0?((ctx.parsed/t)*100).toFixed(1):0; return `${ctx.label}: ${ctx.parsed} (${p}%)`; } } } } }
+        })
+      }
+    }
+    draw()
+
+    return () => {
+      if (barChartRef.current) barChartRef.current.destroy()
+      if (pieChartRef.current) pieChartRef.current.destroy()
+    }
+  }, [sessionId, JSON.stringify(candidates), blank])
+
+  function exportExcel() {
+    if (!session) return
+    const rows = [
+      ['Posição', 'Candidato', 'Votos', '% Válidos', '% Total'],
+      ...candidates.sort((a, b) => b.votes - a.votes).map((c, i) => [
+        i + 1,
+        c.name,
+        c.votes,
+        totalValid > 0 ? ((c.votes / totalValid) * 100).toFixed(2) + '%' : '0.00%',
+        totalAll > 0 ? ((c.votes / totalAll) * 100).toFixed(2) + '%' : '0.00%'
+      ]),
+      ['-', 'Voto em Branco', blank, '-', totalAll > 0 ? ((blank / totalAll) * 100).toFixed(2) + '%' : '0.00%']
+    ]
+    const ws = XLSX.utils.aoa_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, session.title.slice(0, 30))
+    XLSX.writeFile(wb, `resultados-${session.title}.xlsx`)
+  }
+
+  async function exportPDF() {
+    if (!session) return
+    const doc = new jsPDF()
+    const margin = 15
+    let y = 20
+
+    doc.setFillColor(30, 58, 138)
+    doc.rect(0, 0, doc.internal.pageSize.getWidth(), 30, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFontSize(16)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Resultados - ' + session.title, doc.internal.pageSize.getWidth() / 2, 18, { align: 'center' })
+    doc.setFontSize(10)
+    doc.text(electionName, doc.internal.pageSize.getWidth() / 2, 25, { align: 'center' })
+
+    y = 40
+    doc.setTextColor(0, 0, 0)
+
+    doc.setFontSize(10)
+    doc.text(`Eleitores únicos: ${totalVoters} | Votos válidos: ${totalValid} | Brancos: ${blank}`, margin, y)
+    y += 10
+
+    // Tabela
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.text('Pos', margin, y)
+    doc.text('Candidato', margin + 15, y)
+    doc.text('Votos', margin + 90, y)
+    doc.text('% Válidos', margin + 110, y)
+    doc.text('% Total', margin + 145, y)
+    y += 5
+    doc.setDrawColor(200)
+    doc.line(margin, y, 195, y)
+    y += 5
+
+    doc.setFont('helvetica', 'normal')
+    candidates.sort((a, b) => b.votes - a.votes).forEach((c, i) => {
+      doc.text(`${i + 1}º`, margin, y)
+      doc.text(c.name, margin + 15, y)
+      doc.text(String(c.votes), margin + 90, y)
+      doc.text(totalValid > 0 ? ((c.votes / totalValid) * 100).toFixed(2) + '%' : '0.00%', margin + 110, y)
+      doc.text(totalAll > 0 ? ((c.votes / totalAll) * 100).toFixed(2) + '%' : '0.00%', margin + 145, y)
+      y += 6
+    })
+    doc.text('-', margin, y)
+    doc.text('Voto em Branco', margin + 15, y)
+    doc.text(String(blank), margin + 90, y)
+    doc.text('-', margin + 110, y)
+    doc.text(totalAll > 0 ? ((blank / totalAll) * 100).toFixed(2) + '%' : '0.00%', margin + 145, y)
+
+    // Imagens dos gráficos
+    if (barChartRef.current) {
+      const url = barChartRef.current.toBase64Image()
+      y += 15
+      if (y > 200) { doc.addPage(); y = 20 }
+      doc.text('Gráfico de Barras', margin, y)
+      y += 5
+      doc.addImage(url, 'PNG', margin, y, 180, 80)
+      y += 85
+    }
+    if (pieChartRef.current) {
+      if (y > 200) { doc.addPage(); y = 20 }
+      doc.text('Gráfico de Pizza', margin, y)
+      y += 5
+      doc.addImage(pieChartRef.current.toBase64Image(), 'PNG', margin + 40, y, 100, 80)
+    }
+
+    doc.save(`resultados-${session.title}.pdf`)
+  }
+
+  if (!session) {
+    return <div className="bg-white card-shadow rounded-2xl p-6 fade-in text-center text-slate-500">Selecione uma sessão para ver os resultados</div>
+  }
+
+  return (
+    <div className="bg-white card-shadow rounded-2xl p-6 fade-in">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <h2 className="text-lg font-bold text-slate-800">Resultados</h2>
+        <select value={sessionId || ''} onChange={e => onSelectSession(e.target.value)}
+          className="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          {results.map(r => <option key={r.session_id} value={r.session_id}>{r.title}</option>)}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-indigo-50 p-4 rounded-lg">
+          <p className="text-sm text-slate-600">Total de Eleitores</p>
+          <p className="text-3xl font-bold text-indigo-700">{totalVoters}</p>
+        </div>
+        <div className="bg-emerald-50 p-4 rounded-lg">
+          <p className="text-sm text-slate-600">Votos Válidos</p>
+          <p className="text-3xl font-bold text-emerald-700">{totalValid}</p>
+        </div>
+        <div className="bg-slate-100 p-4 rounded-lg">
+          <p className="text-sm text-slate-600">Votos em Branco</p>
+          <p className="text-3xl font-bold text-slate-700">{blank}</p>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto mb-6">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-left">
+              <th className="p-3 font-semibold">#</th>
+              <th className="p-3 font-semibold">Candidato</th>
+              <th className="p-3 font-semibold text-right">Votos</th>
+              <th className="p-3 font-semibold text-right">% Válidos</th>
+              <th className="p-3 font-semibold text-right">% Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...candidates].sort((a, b) => b.votes - a.votes).map((c, i) => (
+              <tr key={c.id} className="border-b hover:bg-slate-50">
+                <td className="p-3">{i + 1}º</td>
+                <td className="p-3 font-medium">{c.name}</td>
+                <td className="p-3 text-right font-mono">{c.votes}</td>
+                <td className="p-3 text-right font-mono">{totalValid > 0 ? ((c.votes / totalValid) * 100).toFixed(2) : '0.00'}%</td>
+                <td className="p-3 text-right font-mono">{totalAll > 0 ? ((c.votes / totalAll) * 100).toFixed(2) : '0.00'}%</td>
+              </tr>
+            ))}
+            <tr className="border-b bg-slate-50">
+              <td className="p-3">-</td>
+              <td className="p-3 font-medium italic">Voto em Branco</td>
+              <td className="p-3 text-right font-mono">{blank}</td>
+              <td className="p-3 text-right font-mono">-</td>
+              <td className="p-3 text-right font-mono">{totalAll > 0 ? ((blank / totalAll) * 100).toFixed(2) : '0.00'}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+        <div className="bg-slate-50 p-4 rounded-lg">
+          <div className="h-72"><canvas ref={barRef}></canvas></div>
+        </div>
+        <div className="bg-slate-50 p-4 rounded-lg">
+          <div className="h-72"><canvas ref={pieRef}></canvas></div>
+        </div>
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        <button onClick={exportExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm">
+          <Icon name="download" className="w-4 h-4" /> Exportar Excel
+        </button>
+        <button onClick={exportPDF} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm">
+          <Icon name="download" className="w-4 h-4" /> Exportar PDF
+        </button>
+      </div>
+    </div>
+  )
+}

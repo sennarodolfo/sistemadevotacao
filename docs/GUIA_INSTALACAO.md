@@ -1,0 +1,64 @@
+# Guia de Instalação — Sistema de Votação Eletrônica
+
+> Versão texto. O PDF binário original não foi extraído do zip; este arquivo
+> é o manual de referência. Para gerar um PDF, rode `pandoc GUIA_INSTALACAO.md -o GUIA_INSTALCAO.pdf`
+> localmente.
+
+## 1. Pré-requisitos
+
+- Conta no [Supabase](https://supabase.com) (grátis)
+- Conta no [Vercel](https://vercel.com) ou [Netlify](https://netlify.com)
+- Node.js 20+ (somente para rodar localmente)
+
+## 2. Configurar o Supabase
+
+1. Crie um projeto novo no Supabase (escolha região próxima).
+2. Aguarde provisionamento (1-2 min).
+3. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0001_init.sql` e rode.
+4. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0002_codigo_autenticacao.sql` e rode (adiciona os códigos de votação de 4 dígitos e remove o bloqueio por geolocalização).
+5. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
+6. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
+7. **Settings → API** copie:
+   - **Project URL** → `VITE_SUPABASE_URL`
+   - **anon public key** → `VITE_SUPABASE_ANON_KEY`
+
+## 3. Deploy na Vercel
+
+1. Suba o projeto para o GitHub.
+2. Importe na Vercel.
+3. **Environment Variables**, adicione:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+   - `VITE_ELECTION_ID`
+4. Deploy.
+
+Acesse `/` para votar e `#admin` para o painel (senha padrão: `admin123`).
+
+## 4. Rodar localmente
+
+```bash
+cp .env.example .env
+# edite .env
+npm install
+npm run dev
+```
+
+Acesse http://localhost:5173.
+
+## 5. Docker (Supabase local)
+
+```bash
+cp .env.example .env
+docker compose up -d
+# Frontend: http://localhost:5173
+# Studio:   http://localhost:54323
+```
+
+## 6. Solução de problemas
+
+| Sintoma | Causa provável | Solução |
+|---|---|---|
+| Página em branco | Env vars ausentes | Verifique o console (F12) e reconfigure na Vercel |
+| "Eleição não encontrada" | UUID errado no `.env` | Rode o seed novamente e copie o UUID |
+| "Não foi possível conectar" | URL ou chave Supabase errada | Revise `Settings → API` no Supabase |
+| "Sessão fechada" | Admin fechou a sessão | Reabra pelo painel `#admin` |

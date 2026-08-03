@@ -1,0 +1,685 @@
+import { useState, useEffect, useRef } from 'react'
+import { Icon } from '../components/Icon'
+import { supabase, ELECTION_ID } from '../lib/supabase'
+import { downloadCodesPdf } from '../lib/codesPdf'
+import ResultsView from './ResultsView'
+
+const CODE_ERROR_MESSAGES = {
+  invalid_quantity: 'Quantidade inválida.',
+  quantity_too_large: 'Quantidade máxima de 5000 códigos por geração.'
+}
+
+function timestampSlug() {
+  return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+}
+
+function adminPassword() {
+  return sessionStorage.getItem('admin_pwd') || ''
+}
+
+function setAdminPassword(p) {
+  sessionStorage.setItem('admin_pwd', p)
+}
+
+export default function AdminPanel({ election, setElection, onLogout, onDataChanged, onGoToWelcome }) {
+  const [tab, setTab] = useState('general')
+  const [message, setMessage] = useState('')
+  const [messageType, setMessageType] = useState('success')
+  const [results, setResults] = useState([])
+  const [resultsSessionId, setResultsSessionId] = useState(null)
+  const [receipts, setReceipts] = useState([])
+  const [sessions, setSessions] = useState([])
+  const [editingSession, setEditingSession] = useState(null)
+  const [showSessionModal, setShowSessionModal] = useState(false)
+  const [newPwd, setNewPwd] = useState('')
+  const [oldPwd, setOldPwd] = useState('')
+  const [electionForm, setElectionForm] = useState(null)
+  const [tempElectionName, setTempElectionName] = useState('')
+  const fileInputRef = useRef(null)
+
+  // ===== Códigos de votação =====
+  const [codeQuantity, setCodeQuantity] = useState(50)
+  const [codeStats, setCodeStats] = useState({ total: 0, used: 0, available: 0 })
+  const [codeList, setCodeList] = useState([])
+  const [lastBatch, setLastBatch] = useState([])
+  const [generatingCodes, setGeneratingCodes] = useState(false)
+
+  useEffect(() => {
+    if (election) {
+      setSessions(election.sessions || [])
+      setElectionForm({
+        name: election.name,
+        location_name: election.location_name
+      })
+      setTempElectionName(election.name)
+    }
+  }, [election])
+
+  function showMessage(msg, type = 'success') {
+    setMessage(msg)
+    setMessageType(type)
+    setTimeout(() => setMessage(''), 4000)
+  }
+
+  async function callAdmin(fn, args) {
+    const pwd = adminPassword()
+    const { data, error } = await supabase.rpc(fn, { p_election_id: ELECTION_ID, p_password: pwd, ...args })
+    if (error) throw error
+    if (data && data.error === 'unauthorized') throw new Error('Senha expirou - faça login novamente')
+    return data
+  }
+
+  // Recarrega os dados SEM mudar de tela
+  async function refreshData() {
+    try {
+      const { data, error: rpcErr } = await supabase.rpc('get_public_election', {
+        p_election_id: ELECTION_ID
+      })
+      if (!rpcErr && data) {
+        setElection(data)
+      }
+    } catch (_) { /* silencioso */ }
+  }
+
+  async function saveGeneral(e) {
+    if (e) e.preventDefault()
+    try {
+      // Usa o nome digitado (tempElectionName) em vez do que veio de election
+      const finalName = (tempElectionName || '').trim() || electionForm.name
+      const updatedForm = { ...electionForm, name: finalName }
+      await callAdmin('admin_update_election', {
+        p_name: finalName,
+        p_location_name: updatedForm.location_name
+      })
+      setElectionForm(updatedForm)
+      showMessage('Configurações salvas')
+      // Atualiza dados sem trocar de tela
+      await refreshData()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  async function changePassword() {
+    if (newPwd.length < 4) return showMessage('Mínimo de 4 caracteres', 'error')
+    try {
+      const { data, error } = await supabase.rpc('admin_change_password', {
+        p_election_id: ELECTION_ID,
+        p_old_password: oldPwd,
+        p_new_password: newPwd
+      })
+      if (error) throw error
+      if (!data) throw new Error('Senha atual incorreta')
+      setAdminPassword(newPwd)
+      setNewPwd('')
+      setOldPwd('')
+      showMessage('Senha alterada')
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  async function openSessionsTab() {
+    setTab('sessions')
+    try {
+      const data = await callAdmin('admin_get_results', {})
+      setResults(data || [])
+      if (data && data.length > 0) setResultsSessionId(data[0].session_id)
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  async function openResultsTab() {
+    setTab('results')
+    try {
+      const data = await callAdmin('admin_get_results', {})
+      setResults(data || [])
+      if (data && data.length > 0) setResultsSessionId(data[0].session_id)
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  async function openAuditTab() {
+    setTab('audit')
+    try {
+      const data = await callAdmin('admin_list_receipts', {})
+      setReceipts(data || [])
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  async function openCodesTab() {
+    setTab('codes')
+    await refreshCodes()
+  }
+
+  async function refreshCodes() {
+    try {
+      const data = await callAdmin('admin_list_codes', {})
+      if (data?.error) throw new Error(data.error)
+      setCodeList(data.codes || [])
+      setCodeStats({
+        total: data.total || 0,
+        used: data.used || 0,
+        available: data.available || 0
+      })
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  async function generateCodes() {
+    const qty = parseInt(codeQuantity)
+    if (!qty || qty < 1) return showMessage('Informe uma quantidade válida', 'error')
+    if (qty > 5000) return showMessage('Máximo de 5000 códigos por geração', 'error')
+    setGeneratingCodes(true)
+    try {
+      const data = await callAdmin('admin_generate_codes', { p_quantity: qty })
+      if (data?.error) throw new Error(CODE_ERROR_MESSAGES[data.error] || data.error)
+      setLastBatch(data.codes || [])
+      const generated = data.generated || 0
+      if (generated < qty) {
+        showMessage(`Apenas ${generated} de ${qty} código(s) puderam ser gerados (limite de combinações de 4 dígitos disponíveis nesta urna).`, 'error')
+      } else {
+        showMessage(`${generated} código(s) gerado(s) com sucesso`)
+      }
+      await refreshCodes()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+    finally { setGeneratingCodes(false) }
+  }
+
+  function downloadLastBatchPdf() {
+    if (lastBatch.length === 0) return showMessage('Nenhum código recém-gerado para exportar', 'error')
+    downloadCodesPdf(lastBatch, election?.name, `codigos-votacao-novos-${timestampSlug()}`)
+  }
+
+  function downloadAvailablePdf() {
+    const available = codeList.filter(c => !c.is_used).map(c => c.code)
+    if (available.length === 0) return showMessage('Não há códigos disponíveis para exportar', 'error')
+    downloadCodesPdf(available, election?.name, `codigos-votacao-disponiveis-${timestampSlug()}`)
+  }
+
+  async function saveSession(form) {
+    try {
+      const candidates = form.candidates.split('\n').map(s => s.trim()).filter(s => s)
+      if (form.id) {
+        await callAdmin('admin_update_session', {
+          p_session_id: form.id,
+          p_title: form.title,
+          p_votes_required: parseInt(form.votes_required),
+          p_candidates: candidates,
+          p_is_active: form.is_active
+        })
+      } else {
+        await callAdmin('admin_create_session', {
+          p_title: form.title,
+          p_votes_required: parseInt(form.votes_required),
+          p_candidates: candidates
+        })
+      }
+      setShowSessionModal(false)
+      setEditingSession(null)
+      showMessage('Sessão salva')
+      await refreshData()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  async function deleteSession(s) {
+    if (!confirm(`Excluir a sessão "${s.title}"? Todos os votos desta sessão serão perdidos.`)) return
+    try {
+      await callAdmin('admin_delete_session', { p_session_id: s.id })
+      showMessage('Sessão excluída')
+      await refreshData()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  async function resetSession(s) {
+    if (!confirm(`Reiniciar "${s.title}"? Os votos e o comprovante desta sessão serão zerados.`)) return
+    try {
+      await callAdmin('admin_reset_session', { p_session_id: s.id })
+      showMessage('Sessão reiniciada')
+      await refreshData()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  async function resetAll() {
+    if (!confirm('Zerar TUDO? Todos os votos e comprovantes de TODAS as sessões serão removidos. Esta ação é irreversível.')) return
+    try {
+      await callAdmin('admin_reset_all', {})
+      showMessage('Tudo zerado')
+      await refreshData()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  // ===== BACKUP / RESTORE =====
+  async function exportBackup() {
+    try {
+      showMessage('Gerando backup...')
+      const el = await callAdmin('admin_export_election', {})
+      const blob = new Blob([JSON.stringify(el, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      a.download = `backup-eleicao-${ts}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      showMessage('Backup exportado com sucesso')
+    } catch (e) { showMessage('Erro ao exportar: ' + e.message, 'error') }
+  }
+
+  function triggerRestore() {
+    fileInputRef.current?.click()
+  }
+
+  async function handleRestoreFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+      if (!confirm(`Restaurar backup "${file.name}"? Os dados atuais serão substituídos. Continuar?`)) {
+        if (fileInputRef.current) fileInputRef.current.value = ''
+        return
+      }
+      showMessage('Restaurando...')
+      await callAdmin('admin_import_election', { p_data: data })
+      showMessage('Backup restaurado com sucesso')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      await refreshData()
+    } catch (e) {
+      showMessage('Erro ao restaurar: ' + e.message, 'error')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  // Sair sem pedir senha (já está autenticado)
+  function logout() {
+    if (onGoToWelcome) onGoToWelcome()
+    if (onLogout) onLogout()
+  }
+
+  const tabs = [
+    { id: 'general', label: 'Geral', icon: 'settings' },
+    { id: 'sessions', label: 'Sessões', icon: 'vote' },
+    { id: 'codes', label: 'Códigos', icon: 'lock' },
+    { id: 'results', label: 'Resultados', icon: 'chart' },
+    { id: 'audit', label: 'Auditoria', icon: 'copy' },
+    { id: 'security', label: 'Segurança', icon: 'shield' }
+  ]
+
+  return (
+    <div className="min-h-screen bg-slate-100">
+      <header className="gradient-bg text-white p-4 shadow-lg">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-white/20 p-2 rounded-lg">
+              <Icon name="settings" className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Painel Administrativo</h1>
+              <p className="text-sm text-indigo-200">{election?.name}</p>
+            </div>
+          </div>
+          <button onClick={logout} className="flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg text-sm font-medium">
+            <Icon name="logout" className="w-4 h-4" /> Sair
+          </button>
+        </div>
+      </header>
+
+      <div className="max-w-6xl mx-auto p-4">
+        {message && (
+          <div className={`px-4 py-2 rounded-lg mb-4 fade-in ${messageType === 'error' ? 'bg-red-100 border border-red-300 text-red-800' : 'bg-emerald-100 border border-emerald-300 text-emerald-800'}`}>
+            {message}
+          </div>
+        )}
+
+        <div className="flex gap-2 mb-6 overflow-x-auto">
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              onClick={() => {
+                if (t.id === 'sessions') openSessionsTab()
+                else if (t.id === 'codes') openCodesTab()
+                else if (t.id === 'results') openResultsTab()
+                else if (t.id === 'audit') openAuditTab()
+                else setTab(t.id)
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium whitespace-nowrap ${tab === t.id ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
+            >
+              <Icon name={t.icon} className="w-4 h-4" /> {t.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'general' && electionForm && (
+          <div className="bg-white card-shadow rounded-2xl p-6 fade-in space-y-4">
+            <h2 className="text-lg font-bold text-slate-800">Configurações Gerais</h2>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Nome da Eleição</label>
+              <input
+                type="text"
+                value={tempElectionName}
+                onChange={e => setTempElectionName(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg"
+              />
+            </div>
+
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-slate-700 mb-3">Local de Votação</h3>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Nome do local</label>
+                <input type="text" value={electionForm.location_name || ''} onChange={e => setElectionForm({ ...electionForm, location_name: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg" placeholder="Ex: Igreja - Salão Principal" />
+                <p className="text-xs text-slate-500 mt-1">Apenas informativo, exibido para o eleitor. A urna não bloqueia mais o voto por geolocalização — a identificação agora é feita pelo código de votação (aba "Códigos").</p>
+              </div>
+            </div>
+
+            <button type="button" onClick={saveGeneral} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-semibold">
+              Salvar Configurações
+            </button>
+
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-slate-700 mb-2">Alterar Senha</h3>
+              <div className="space-y-2">
+                <input type="password" placeholder="Senha atual" value={oldPwd} onChange={e => setOldPwd(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+                <div className="flex gap-2">
+                  <input type="password" placeholder="Nova senha (mín. 4 caracteres)" value={newPwd} onChange={e => setNewPwd(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+                  <button type="button" onClick={changePassword} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm">
+                    Alterar
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-slate-700 mb-2">Backup e Restauração</h3>
+              <p className="text-xs text-slate-500 mb-2">Exporte um arquivo JSON com todos os dados da eleição ou restaure um backup anterior.</p>
+              <div className="flex gap-2 flex-wrap">
+                <button type="button" onClick={exportBackup} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2">
+                  <Icon name="download" className="w-4 h-4" /> Exportar tudo (JSON)
+                </button>
+                <button type="button" onClick={triggerRestore} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2">
+                  <Icon name="upload" className="w-4 h-4" /> Restaurar de arquivo JSON
+                </button>
+                <input ref={fileInputRef} type="file" accept="application/json" onChange={handleRestoreFile} className="hidden" />
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <h3 className="font-bold text-red-600 mb-2">Zona de perigo</h3>
+              <button type="button" onClick={resetAll} className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 text-sm">
+                Zerar TUDO (votos e comprovantes)
+              </button>
+            </div>
+          </div>
+        )}
+
+        {tab === 'sessions' && (
+          <div className="bg-white card-shadow rounded-2xl p-6 fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-slate-800">Sessões de Votação</h2>
+              <button type="button" onClick={() => { setEditingSession({ title: '', votes_required: 1, candidates: '', is_active: true }); setShowSessionModal(true) }}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
+                <Icon name="plus" className="w-4 h-4" /> Nova Sessão
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {sessions.length === 0 && <p className="text-center text-slate-400 py-8">Nenhuma sessão cadastrada</p>}
+              {sessions.map((s, i) => (
+                <div key={s.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                  <div className="bg-indigo-100 text-indigo-700 font-bold w-8 h-8 rounded-full flex items-center justify-center">{i + 1}</div>
+                  <div className="flex-1">
+                    <p className="font-semibold">{s.title}</p>
+                    <p className="text-xs text-slate-500">{s.votes_required} voto(s) • {s.candidates?.length || 0} candidatos</p>
+                  </div>
+                  <button type="button" onClick={() => resetSession(s)} className="text-amber-600 hover:bg-amber-50 p-2 rounded" title="Reiniciar sessão">
+                    <Icon name="refresh" className="w-4 h-4" />
+                  </button>
+                  <button type="button" onClick={() => { setEditingSession({ ...s, candidates: (s.candidates || []).map(c => c.name).join('\n') }); setShowSessionModal(true) }}
+                    className="text-blue-600 hover:bg-blue-50 p-2 rounded">
+                    <Icon name="edit" className="w-4 h-4" />
+                  </button>
+                  <button type="button" onClick={() => deleteSession(s)} className="text-red-600 hover:bg-red-50 p-2 rounded">
+                    <Icon name="trash" className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {showSessionModal && (
+              <SessionModal
+                session={editingSession}
+                onSave={saveSession}
+                onClose={() => { setShowSessionModal(false); setEditingSession(null) }}
+              />
+            )}
+          </div>
+        )}
+
+        {tab === 'codes' && (
+          <div className="bg-white card-shadow rounded-2xl p-6 fade-in space-y-5">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Códigos de Votação</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Gere códigos numéricos de 4 dígitos para autenticar os eleitores. Cada código libera o voto em todas as sessões desta urna e só pode ser usado <b>uma única vez</b> — ao ser digitado, ele é imediatamente bloqueado para qualquer outra tentativa.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-indigo-700">{codeStats.total}</p>
+                <p className="text-xs text-indigo-600 font-medium">Gerados</p>
+              </div>
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-emerald-700">{codeStats.used}</p>
+                <p className="text-xs text-emerald-600 font-medium">Utilizados</p>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-amber-700">{codeStats.available}</p>
+                <p className="text-xs text-amber-600 font-medium">Disponíveis</p>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-slate-700 mb-2">Gerar novos códigos</h3>
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Quantidade</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="5000"
+                    value={codeQuantity}
+                    onChange={e => setCodeQuantity(e.target.value)}
+                    className="w-32 px-3 py-2 border border-slate-300 rounded-lg"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={generateCodes}
+                  disabled={generatingCodes}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-semibold disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Icon name="plus" className="w-4 h-4" />
+                  {generatingCodes ? 'Gerando...' : 'Gerar Códigos'}
+                </button>
+              </div>
+              <p className="text-xs text-slate-400 mt-2">
+                Os códigos têm 4 dígitos (0000–9999), portanto o limite é de até 10.000 códigos por urna.
+              </p>
+            </div>
+
+            {lastBatch.length > 0 && (
+              <div className="border-t pt-4">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-sm text-emerald-800"><b>{lastBatch.length}</b> código(s) gerado(s) na última geração.</p>
+                  <button
+                    type="button"
+                    onClick={downloadLastBatchPdf}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+                  >
+                    <Icon name="download" className="w-4 h-4" /> Baixar PDF (recém-gerados)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-slate-700 mb-2">Reimprimir códigos disponíveis</h3>
+              <p className="text-xs text-slate-500 mb-2">
+                Gera um único PDF com todos os códigos ainda não utilizados, prontos para impressão — cada código fica em uma ficha com borda tracejada para recorte.
+              </p>
+              <button
+                type="button"
+                onClick={downloadAvailablePdf}
+                disabled={codeStats.available === 0}
+                className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                <Icon name="download" className="w-4 h-4" /> Baixar PDF (todos disponíveis — {codeStats.available})
+              </button>
+            </div>
+          </div>
+        )}
+
+        {tab === 'results' && (
+          <ResultsView
+            results={results}
+            sessionId={resultsSessionId}
+            onSelectSession={setResultsSessionId}
+            electionName={election?.name}
+          />
+        )}
+
+        {tab === 'audit' && (
+          <div className="bg-white card-shadow rounded-2xl p-6 fade-in">
+            <h2 className="text-lg font-bold text-slate-800 mb-4">Comprovantes de Votação</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-100 text-left">
+                    <th className="p-3 font-semibold">Código</th>
+                    <th className="p-3 font-semibold">Data/Hora</th>
+                    <th className="p-3 font-semibold">Sessões Votadas</th>
+                    <th className="p-3 font-semibold">Candidatos Votados</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receipts.length === 0 && (
+                    <tr><td colSpan="4" className="p-8 text-center text-slate-400">Nenhum comprovante emitido</td></tr>
+                  )}
+                  {receipts.map(r => {
+                    const completions = r.session_completions || []
+                    return (
+                      <tr key={r.receipt_code} className="border-b hover:bg-slate-50">
+                        <td className="p-3 font-mono text-indigo-700">{r.receipt_code}</td>
+                        <td className="p-3 text-xs">{new Date(r.created_at).toLocaleString('pt-BR')}</td>
+                        <td className="p-3 text-slate-700">{completions.map(c => c.session_title).join(', ')}</td>
+                        <td className="p-3 text-xs text-slate-600">
+                          {completions.map(c => `${c.session_title}: ${(c.voted_candidates || []).join(', ')}${c.blank_count > 0 ? ' + ' + c.blank_count + ' branco(s)' : ''}`).join('; ')}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {tab === 'security' && (
+          <div className="bg-white card-shadow rounded-2xl p-6 fade-in space-y-4">
+            <h2 className="text-lg font-bold text-slate-800">Segurança e Dispositivos</h2>
+
+            <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg text-sm text-amber-800">
+              <p className="font-semibold mb-1">Como o sistema identifica o eleitor</p>
+              <p>
+                O eleitor digita um <b>código numérico de 4 dígitos</b> (gerado na aba "Códigos") ao iniciar a votação.
+                O código é validado e marcado como usado uma única vez no banco de dados — depois disso, nenhum outro
+                dispositivo consegue digitar o mesmo código. A validação gera um token interno salvo no <code>localStorage</code> do
+                navegador, que libera todas as sessões desta urna para aquele eleitor. Não usamos fingerprint (impressão digital do navegador) nem geolocalização.
+              </p>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg">
+              <h3 className="font-semibold text-slate-700 mb-2">Liberar este dispositivo</h3>
+              <p className="text-sm text-slate-600 mb-3">
+                Esta opção <b>apaga o token salvo</b> no navegador atual. Use quando o mesmo aparelho for reutilizado por outro eleitor — ele precisará digitar um <b>novo</b> código de votação. Isso não reativa um código já utilizado.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('Reiniciar sessão de votação deste dispositivo? O token local será apagado. Os votos já computados no banco permanecem.')) {
+                    try {
+                      localStorage.removeItem('voter_token')
+                      showMessage('Sessão de votação reiniciada. Recarregue a página para gerar um novo token.')
+                    } catch (e) {
+                      showMessage('Erro: ' + e.message, 'error')
+                    }
+                  }
+                }}
+                className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+              >
+                <Icon name="refresh" className="w-4 h-4" /> Reiniciar Sessão de Votação (dispositivos)
+              </button>
+            </div>
+
+            <div className="bg-red-50 border border-red-200 p-4 rounded-lg">
+              <h3 className="font-bold text-red-600 mb-2">Zerar TUDO (votos e comprovantes)</h3>
+              <p className="text-sm text-red-700 mb-3">
+                Esta ação remove <b>todos os votos e comprovantes</b> de todas as sessões no banco de dados. Use apenas se precisar reiniciar a eleição.
+                Os <b>códigos de votação</b> gerados (aba "Códigos") não são afetados por esta ação.
+              </p>
+              <button type="button" onClick={resetAll} className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 text-sm">
+                Zerar TUDO
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SessionModal({ session, onSave, onClose }) {
+  const [form, setForm] = useState(session)
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <h3 className="text-lg font-bold mb-4">{form.id ? 'Editar' : 'Nova'} Sessão</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Título</label>
+            <input type="text" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Ex: Presbíteros" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Votos obrigatórios: <b>{form.votes_required}</b></label>
+            <div className="flex gap-2">
+              <input type="number" min="1" max="10" value={form.votes_required} onChange={e => setForm({ ...form, votes_required: parseInt(e.target.value) || 1 })}
+                className="w-20 px-3 py-2 border border-slate-300 rounded-lg" />
+              <input type="range" min="1" max="10" value={form.votes_required} onChange={e => setForm({ ...form, votes_required: parseInt(e.target.value) })}
+                className="flex-1" />
+            </div>
+            <p className="text-xs text-slate-500 mt-1">O eleitor pode misturar candidatos e brancos livremente, totalizando este número.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Candidatos (um por linha)</label>
+            <textarea value={form.candidates} onChange={e => setForm({ ...form, candidates: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-sm" rows="6"
+              placeholder={"João da Silva\nPedro Souza\nCarlos Mendes"} />
+            <p className="text-xs text-slate-500 mt-1">Até 10 candidatos por sessão.</p>
+          </div>
+          {form.id && (
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} />
+              <span className="text-sm">Sessão ativa</span>
+            </label>
+          )}
+        </div>
+        <div className="flex gap-2 mt-4">
+          <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg">Cancelar</button>
+          <button type="button" onClick={() => onSave(form)} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg">Salvar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
