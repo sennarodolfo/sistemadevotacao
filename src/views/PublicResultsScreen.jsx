@@ -158,12 +158,12 @@ export default function PublicResultsScreen({ electionName, initialSessionId }) 
             <div className={`grid ${usingRegistered ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'} gap-4 mb-6`}>
               {usingRegistered && (
                 <div className="bg-slate-800 rounded-xl p-5 text-center">
-                  <p className="text-slate-400 text-sm">Eleitores Presentes</p>
+                  <p className="text-slate-400 text-sm">Membros Presentes</p>
                   <p className="text-4xl font-bold">{registeredVoters}</p>
                 </div>
               )}
               <div className="bg-slate-800 rounded-xl p-5 text-center">
-                <p className="text-slate-400 text-sm">{usingRegistered ? 'Eleitores Votantes' : 'Eleitores Únicos'}</p>
+                <p className="text-slate-400 text-sm">{usingRegistered ? 'Membros Votantes' : 'Membros Únicos'}</p>
                 <p className={`text-4xl font-bold ${usingRegistered && totalVoters !== registeredVoters ? 'text-amber-400' : ''}`}>{totalVoters}</p>
               </div>
               <div className="bg-slate-800 rounded-xl p-5 text-center">
@@ -178,7 +178,7 @@ export default function PublicResultsScreen({ electionName, initialSessionId }) 
 
             {usingRegistered && (
               <p className="text-center text-slate-400 text-sm mb-6">
-                Percentual sobre os <b className="text-slate-200">{registeredVoters} eleitores presentes</b> · Eleito com 50% + 1 = <b className="text-slate-200">{electedThreshold} voto(s)</b>
+                Percentual sobre os <b className="text-slate-200">{registeredVoters} membros presentes</b> · Eleito com 50% + 1 = <b className="text-slate-200">{electedThreshold} voto(s)</b>
               </p>
             )}
 

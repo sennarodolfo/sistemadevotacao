@@ -8,7 +8,8 @@ Sistema de votação eletrônica **multi-sessão** com backend em **Supabase** (
 ## ✨ Funcionalidades
 
 - ✅ Múltiplas sessões de votação em uma mesma eleição (ex: Presbíteros, Diáconos, etc.)
-- ✅ Eleição por assembleia: número de eleitores presentes por sessão, com percentual de cada candidato calculado sobre esse total (não sobre o total de votos) e indicação de "Eleito" (50% + 1)
+- ✅ Eleição por assembleia: número de membros presentes por sessão, com percentual de cada candidato calculado sobre esse total (não sobre o total de votos) e indicação de "Eleito" (50% + 1)
+- ✅ Auditoria exportável em PDF, além da lista no painel
 - ✅ Foto opcional de cada candidato (upload no cadastro, com zoom ao clicar na votação)
 - ✅ Autenticação do eleitor por código numérico de 4 dígitos (uso único, gerado pelo admin)
 - ✅ Geração em lote de códigos de votação com exportação em PDF pronto para impressão e recorte

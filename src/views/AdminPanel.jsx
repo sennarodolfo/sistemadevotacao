@@ -5,6 +5,7 @@ import { fileToResizedDataUrl } from '../lib/imageResize'
 import { supabase, ELECTION_ID } from '../lib/supabase'
 import { downloadCodesPdf } from '../lib/codesPdf'
 import { downloadManualBallotsPdf } from '../lib/manualBallotPdf'
+import jsPDF from 'jspdf'
 import ResultsView from './ResultsView'
 
 const CODE_ERROR_MESSAGES = {
@@ -179,6 +180,85 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       const data = await callAdmin('admin_list_receipts', {})
       setReceipts(data || [])
     } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  function exportAuditPDF() {
+    if (receipts.length === 0) return showMessage('Nenhum comprovante para exportar', 'error')
+
+    const doc = new jsPDF({ orientation: 'landscape' })
+    const margin = 10
+    const pageW = doc.internal.pageSize.getWidth()
+    const pageH = doc.internal.pageSize.getHeight()
+    let y = margin
+
+    const cols = [
+      { label: 'Origem', x: margin, w: 26 },
+      { label: 'Código', x: margin + 26, w: 16 },
+      { label: 'Comprovante', x: margin + 42, w: 34 },
+      { label: 'Data/Hora', x: margin + 76, w: 28 },
+      { label: 'Sessões Votadas', x: margin + 104, w: 48 },
+      { label: 'Candidatos Votados', x: margin + 152, w: pageW - margin - (margin + 152) }
+    ]
+
+    function drawHeader() {
+      doc.setFillColor(30, 58, 138)
+      doc.rect(0, 0, pageW, 22, 'F')
+      doc.setTextColor(255, 255, 255)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(14)
+      doc.text('Auditoria de Comprovantes', pageW / 2, 12, { align: 'center' })
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.text(election?.name || '', pageW / 2, 18, { align: 'center' })
+
+      y = 30
+      doc.setTextColor(0, 0, 0)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8)
+      cols.forEach(c => doc.text(c.label, c.x, y))
+      y += 4
+      doc.setDrawColor(180)
+      doc.line(margin, y, pageW - margin, y)
+      y += 4
+      doc.setFont('helvetica', 'normal')
+    }
+
+    drawHeader()
+
+    receipts.forEach(r => {
+      const completions = r.session_completions || []
+      const origin = describeVoterOrigin(r.voter_token)
+      const sessionsText = completions.map(c => c.session_title).join(', ')
+      const candidatesText = completions
+        .map(c => `${c.session_title}: ${(c.voted_candidates || []).join(', ')}${c.blank_count > 0 ? ` + ${c.blank_count} branco(s)` : ''}`)
+        .join('; ')
+      const dateText = new Date(r.created_at).toLocaleString('pt-BR')
+
+      doc.setFontSize(7.5)
+      const sessionsLines = doc.splitTextToSize(sessionsText || '-', cols[4].w - 2)
+      const candidatesLines = doc.splitTextToSize(candidatesText || '-', cols[5].w - 2)
+      const rowLines = Math.max(1, sessionsLines.length, candidatesLines.length)
+      const rowHeight = rowLines * 3.5 + 2
+
+      if (y + rowHeight > pageH - margin) {
+        doc.addPage()
+        drawHeader()
+      }
+
+      doc.text(origin.label, cols[0].x, y + 3)
+      doc.text(origin.code, cols[1].x, y + 3)
+      doc.text(r.receipt_code, cols[2].x, y + 3)
+      doc.text(dateText, cols[3].x, y + 3)
+      doc.text(sessionsLines, cols[4].x, y + 3)
+      doc.text(candidatesLines, cols[5].x, y + 3)
+
+      y += rowHeight
+      doc.setDrawColor(230)
+      doc.line(margin, y - 1, pageW - margin, y - 1)
+    })
+
+    const slug = (election?.name || 'eleicao').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)
+    doc.save(`auditoria-${slug}-${timestampSlug()}.pdf`)
   }
 
   async function openCodesTab() {
@@ -667,7 +747,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                     <p className="font-semibold">{s.title}</p>
                     <p className="text-xs text-slate-500">
                       {s.votes_required} voto(s) • {s.candidates?.length || 0} candidatos
-                      {s.registered_voters != null && <> • {s.registered_voters} eleitores presentes</>}
+                      {s.registered_voters != null && <> • {s.registered_voters} membros presentes</>}
                     </p>
                   </div>
                   <button type="button" onClick={() => resetSession(s)} className="text-amber-600 hover:bg-amber-50 p-2 rounded" title="Reiniciar sessão">
@@ -1087,7 +1167,16 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
 
         {tab === 'audit' && (
           <div className="bg-white card-shadow rounded-2xl p-6 fade-in">
-            <h2 className="text-lg font-bold text-slate-800 mb-4">Comprovantes de Votação</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <h2 className="text-lg font-bold text-slate-800">Comprovantes de Votação</h2>
+              <button
+                type="button"
+                onClick={exportAuditPDF}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm"
+              >
+                <Icon name="download" className="w-4 h-4" /> Exportar Auditoria em PDF
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -1288,7 +1377,7 @@ function SessionModal({ session, onSave, onClose }) {
             <p className="text-xs text-slate-500 mt-1">O eleitor pode misturar candidatos e brancos livremente, totalizando este número.</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Número de eleitores presentes</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Número de membros presentes</label>
             <input
               type="number"
               min="0"
@@ -1298,7 +1387,7 @@ function SessionModal({ session, onSave, onClose }) {
               className="w-32 px-3 py-2 border border-slate-300 rounded-lg"
             />
             <p className="text-xs text-slate-500 mt-1">
-              Quantidade de eleitores presentes na assembleia para esta sessão. O percentual de cada candidato na apuração é calculado em cima deste número (não do total de votos) — ex: com 100 eleitores presentes, um candidato com 80 votos aparece com 80%. Ao final da votação, o número de votantes desta sessão deve bater com este valor.
+              Quantidade de membros presentes na assembleia para esta sessão. O percentual de cada candidato na apuração é calculado em cima deste número (não do total de votos) — ex: com 100 membros presentes, um candidato com 80 votos aparece com 80%. Ao final da votação, o número de votantes desta sessão deve bater com este valor.
             </p>
           </div>
           <div>
