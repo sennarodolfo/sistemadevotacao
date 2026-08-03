@@ -11,6 +11,11 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 4173
   },
+  optimizeDeps: {
+    // tesseract.js carrega worker + WASM próprios em tempo de execução;
+    // excluir do pre-bundling evita conflitos comuns com o dev server do Vite.
+    exclude: ['tesseract.js']
+  },
   build: {
     outDir: 'dist',
     sourcemap: false,

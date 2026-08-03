@@ -5,6 +5,7 @@ import { fileToResizedDataUrl } from '../lib/imageResize'
 import { supabase, ELECTION_ID } from '../lib/supabase'
 import { downloadCodesPdf } from '../lib/codesPdf'
 import { downloadManualBallotsPdf } from '../lib/manualBallotPdf'
+import BallotScanView from './BallotScanView'
 import jsPDF from 'jspdf'
 import ResultsView from './ResultsView'
 
@@ -694,6 +695,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     { id: 'sessions', label: 'Sessões', icon: 'vote' },
     { id: 'codes', label: 'Códigos', icon: 'lock' },
     { id: 'manualCodes', label: 'Cédulas Manuais', icon: 'edit' },
+    { id: 'ballotScan', label: 'Leitura de Cédulas', icon: 'upload' },
     { id: 'results', label: 'Resultados', icon: 'chart' },
     { id: 'audit', label: 'Auditoria', icon: 'copy' },
     { id: 'security', label: 'Segurança', icon: 'shield' }
@@ -1253,6 +1255,10 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
               </div>
             </div>
           </div>
+        )}
+
+        {tab === 'ballotScan' && (
+          <BallotScanView election={election} />
         )}
 
         {tab === 'results' && (

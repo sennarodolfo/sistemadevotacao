@@ -16,6 +16,7 @@ Sistema de votação eletrônica **multi-sessão** com backend em **Supabase** (
 - ✅ Geração em lote de códigos de votação com exportação em PDF pronto para impressão e recorte
 - ✅ Gestão individual de códigos: resetar (destravar sem apagar votos) ou apagar (remove o código e os votos feitos com ele) — inclusive em lote (todos de uma vez)
 - ✅ Módulo de cédulas manuais (`#votacaomanual`): códigos de 4 dígitos próprios e distintos dos códigos do eleitor, PDF com o código + lista de candidatos para marcação em papel, código digitado uma única vez libera todas as sessões, e aparece na Auditoria identificado como "Mesário (manual)"
+- ✅ Leitura de cédulas por foto (aba "Leitura de Cédulas"): fotografe ou envie a imagem de uma cédula manual preenchida — o sistema corrige a perspectiva, reconhece o código (OCR) e as marcações (leitura óptica), e o mesário confirma/corrige antes de os votos serem computados
 - ✅ Senha própria e independente para a página de votação manual, alterável pelo painel admin sem precisar da senha antiga
 - ✅ "Modo urna": bloqueia o botão Voltar do navegador e avisa antes de atualizar/fechar a aba, para o eleitor não perder o progresso da votação
 - ✅ Comprovante de votação com código único (`VT-YYYYMMDD-XXXXXX`)
@@ -186,6 +187,24 @@ Para o **Docker local** há também `POSTGRES_PASSWORD`, `JWT_SECRET` e `SUPABAS
 
 - Senha inicial: **`manual123`** (independente da senha de admin)
 - Altere pelo painel admin (aba "Geral" → "Alterar Senha da Votação Manual")
+
+---
+
+## 📷 Leitura de cédulas por foto
+
+Na aba **"Leitura de Cédulas"** do painel admin, o mesário fotografa (ou envia um arquivo de) uma cédula manual preenchida e o sistema:
+
+1. Pede para tocar nos **4 cantos** da cédula na foto (o mesmo mecanismo usado por apps de escanear documentos) — isso corrige a perspectiva/ângulo da foto.
+2. Reconhece o **código de 4 dígitos** impresso (OCR, via [Tesseract.js](https://github.com/naptha/tesseract.js), rodando 100% no navegador).
+3. Reconhece **quais quadradinhos foram marcados** (leitura óptica de marcação/OMR: mede o quanto cada quadrado está "escurecido" e separa marcado de não-marcado automaticamente).
+4. Mostra tudo em uma tela de conferência — código editável e cada candidato com uma caixinha marcável/desmarcável — para o **mesário confirmar ou corrigir** antes de enviar.
+5. Só ao clicar em "Confirmar e Registrar Votos" os votos entram no banco (mesmas regras e RPCs da votação manual comum — aparece na Auditoria como "Mesário (manual)").
+
+**Importante saber:**
+- O reconhecimento é uma **ajuda**, não uma autoridade: nada é gravado sem a confirmação explícita do mesário na tela de revisão.
+- A precisão depende de boa iluminação, foco e da cédula estar bem enquadrada — fotos tortas, tremidas ou com sombra fazem o reconhecimento errar mais (por isso o passo manual de marcar os 4 cantos é importante).
+- O Tesseract.js baixa o pacote de idioma (poucos MB) na primeira leitura de código — o computador do painel admin precisa de internet nesse momento (o mesmo computador que já acessa o Supabase).
+- Funciona com o layout de cédula gerado pela aba "Cédulas Manuais" deste sistema; cédulas impressas fora do padrão (ou com o layout de sessões alterado depois de impressas) podem não ser lidas corretamente.
 
 ---
 

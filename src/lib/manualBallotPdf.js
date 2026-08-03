@@ -5,12 +5,85 @@ import jsPDF from 'jspdf'
 // entre páginas ou entre células. A lista de candidatos de cada sessão
 // é distribuída em 2 colunas dentro da cédula. Não há opção de "voto em
 // branco" impressa (o próprio papel em branco/sem marcação já representa
-// isso na apuração manual).
-const PAGE_MARGIN = 8
-const CELL_GAP = 4
-const COLS = 2
-const ROWS = 3
-const CELLS_PER_PAGE = COLS * ROWS
+// isso na apuração manual - e também na leitura automática por foto).
+//
+// A4 tem tamanho FIXO (210x297mm), então CELL_W/CELL_H abaixo são
+// constantes conhecidas em qualquer lugar do app - inclusive fora do
+// jsPDF (ex: no módulo de leitura de cédula por foto, que precisa saber
+// exatamente onde cada quadradinho foi impresso para "reconhecer" a
+// marcação na imagem fotografada).
+export const A4_WIDTH_MM = 210
+export const A4_HEIGHT_MM = 297
+export const PAGE_MARGIN = 8
+export const CELL_GAP = 4
+export const COLS = 2
+export const ROWS = 3
+export const CELLS_PER_PAGE = COLS * ROWS
+export const CELL_W = (A4_WIDTH_MM - PAGE_MARGIN * 2 - CELL_GAP * (COLS - 1)) / COLS
+export const CELL_H = (A4_HEIGHT_MM - PAGE_MARGIN * 2 - CELL_GAP * (ROWS - 1)) / ROWS
+export const BALLOT_PAD = 3
+
+// ============== Geometria compartilhada (PDF <-> reconhecimento) ==============
+// Calcula, para uma cédula de tamanho CELL_W x CELL_H mm com as sessões
+// informadas, EXATAMENTE as mesmas posições usadas para desenhar o PDF:
+// onde fica o código impresso e onde fica cada quadradinho de candidato.
+// Tudo em mm, relativo ao canto superior esquerdo da cédula (0,0).
+// O módulo de leitura de foto reusa esta MESMA função (convertendo mm
+// para fração 0..1 dividindo por CELL_W/CELL_H) para nunca ficar
+// dessincronizado do que foi realmente impresso.
+export function computeBallotLayout(sessions, w = CELL_W, h = CELL_H, pad = BALLOT_PAD) {
+  let cy = pad
+  cy += 5    // título "CÉDULA DE VOTAÇÃO MANUAL"
+  cy += 4.5  // nome da eleição
+  const codeRegion = { x: pad, y: cy, w: w - pad * 2, h: 9 }
+  cy += 9
+  cy += 2.5  // linha divisória + respiro
+
+  let totalRows = 0
+  sessions.forEach(s => {
+    totalRows += 1
+    totalRows += Math.ceil((s.candidates || []).length / 2)
+  })
+  const availableH = (h - pad) - cy
+  const rawRowH = totalRows > 0 ? availableH / totalRows : availableH
+  const rowH = Math.max(2.6, Math.min(5.5, rawRowH))
+  const fontSize = Math.max(5, Math.min(7.5, rowH * 1.7))
+  const colW = (w - pad * 2) / 2
+
+  const candidateBoxes = []
+  const sessionTitles = []
+
+  sessions.forEach(session => {
+    sessionTitles.push({ session_id: session.id, x: pad, y: cy, w: w - pad * 2, h: rowH, title: session.title, votes_required: session.votes_required })
+    cy += rowH
+
+    const candidates = session.candidates || []
+    for (let i = 0; i < candidates.length; i += 2) {
+      const rowCandidates = [candidates[i], candidates[i + 1]]
+      const rowY = cy
+      rowCandidates.forEach((c, colIdx) => {
+        if (!c) return
+        const cx = pad + colIdx * colW
+        const boxSize = rowH * 0.55
+        candidateBoxes.push({
+          session_id: session.id,
+          candidate_id: c.id,
+          candidate_name: c.name,
+          x: cx,
+          y: rowY + (rowH - boxSize) / 2,
+          size: boxSize,
+          rowY,
+          labelX: cx + boxSize + 1.2,
+          labelY: rowY + rowH * 0.72,
+          labelMaxWidth: colW - boxSize - 2
+        })
+      })
+      cy += rowH
+    }
+  })
+
+  return { pad, rowH, fontSize, codeRegion, sessionTitles, candidateBoxes }
+}
 
 export function buildManualBallotsPdf(codes, election) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -52,71 +125,55 @@ function drawBallot(doc, x, y, w, h, code, electionName, sessions) {
   doc.rect(x, y, w, h)
   doc.setLineDashPattern([], 0)
 
-  const pad = 3
-  let cy = y + pad
+  // Marcadores de canto (fiduciais) sólidos: ajudam o mesário a apontar
+  // com precisão os 4 cantos da cédula na tela ao fotografar/enquadrar
+  // para a leitura automática.
+  const markerSize = 2.2
+  doc.setFillColor(30, 41, 59)
+  doc.rect(x + 0.6, y + 0.6, markerSize, markerSize, 'F')
+  doc.rect(x + w - 0.6 - markerSize, y + 0.6, markerSize, markerSize, 'F')
+  doc.rect(x + 0.6, y + h - 0.6 - markerSize, markerSize, markerSize, 'F')
+  doc.rect(x + w - 0.6 - markerSize, y + h - 0.6 - markerSize, markerSize, markerSize, 'F')
+
+  const layout = computeBallotLayout(sessions, w, h)
+  const pad = layout.pad
 
   doc.setTextColor(79, 70, 229)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
-  doc.text('CÉDULA DE VOTAÇÃO MANUAL', x + pad, cy + 3)
-  cy += 5
+  doc.text('CÉDULA DE VOTAÇÃO MANUAL', x + pad, y + pad + 3)
 
   doc.setTextColor(100, 100, 100)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.5)
-  doc.text(truncateToWidth(doc, electionName, w - pad * 2), x + pad, cy + 2.5)
-  cy += 4.5
+  doc.text(truncateToWidth(doc, electionName, w - pad * 2), x + pad, y + pad + 7.5)
 
   doc.setTextColor(30, 41, 59)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(15)
-  doc.text(code.split('').join(' '), x + pad, cy + 6)
-  cy += 9
+  doc.text(code.split('').join(' '), x + layout.codeRegion.x, y + layout.codeRegion.y + 6)
 
   doc.setDrawColor(210, 210, 210)
   doc.setLineWidth(0.15)
-  doc.line(x + pad, cy, x + w - pad, cy)
-  cy += 2.5
+  const dividerY = y + layout.codeRegion.y + layout.codeRegion.h
+  doc.line(x + pad, dividerY, x + w - pad, dividerY)
 
-  // Calcula quantas "linhas de conteúdo" (título de sessão + candidatos
-  // em 2 colunas) serão necessárias, para escolher um tamanho de fonte
-  // que caiba tudo no espaço restante SEM quebrar a cédula.
-  let totalRows = 0
-  sessions.forEach(s => {
-    totalRows += 1
-    totalRows += Math.ceil((s.candidates || []).length / 2)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(layout.fontSize)
+  doc.setTextColor(67, 56, 202)
+  layout.sessionTitles.forEach(st => {
+    const title = `${st.title} (vote em ${st.votes_required})`
+    doc.text(truncateToWidth(doc, title, st.w), x + st.x, y + st.y + layout.rowH * 0.7)
   })
-  const availableH = (y + h - pad) - cy
-  const rawRowH = totalRows > 0 ? availableH / totalRows : availableH
-  const rowH = Math.max(2.6, Math.min(5.5, rawRowH))
-  const fontSize = Math.max(5, Math.min(7.5, rowH * 1.7))
-  const colW = (w - pad * 2) / 2
 
-  sessions.forEach(session => {
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(fontSize)
-    doc.setTextColor(67, 56, 202)
-    const title = `${session.title} (vote em ${session.votes_required})`
-    doc.text(truncateToWidth(doc, title, w - pad * 2), x + pad, cy + rowH * 0.7)
-    cy += rowH
-
-    const candidates = session.candidates || []
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(fontSize)
-    doc.setTextColor(30, 41, 59)
-    for (let i = 0; i < candidates.length; i += 2) {
-      const rowCandidates = [candidates[i], candidates[i + 1]]
-      rowCandidates.forEach((c, colIdx) => {
-        if (!c) return
-        const cx = x + pad + colIdx * colW
-        const boxSize = rowH * 0.55
-        doc.setDrawColor(100, 100, 100)
-        doc.rect(cx, cy + (rowH - boxSize) / 2, boxSize, boxSize)
-        const label = truncateToWidth(doc, c.name, colW - boxSize - 2)
-        doc.text(label, cx + boxSize + 1.2, cy + rowH * 0.72)
-      })
-      cy += rowH
-    }
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(layout.fontSize)
+  doc.setTextColor(30, 41, 59)
+  doc.setDrawColor(100, 100, 100)
+  layout.candidateBoxes.forEach(box => {
+    doc.rect(x + box.x, y + box.y, box.size, box.size)
+    const label = truncateToWidth(doc, box.candidate_name, box.labelMaxWidth)
+    doc.text(label, x + box.labelX, y + box.labelY)
   })
 }
 
