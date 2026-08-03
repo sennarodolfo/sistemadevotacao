@@ -51,6 +51,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
   const [showSessionModal, setShowSessionModal] = useState(false)
   const [newPwd, setNewPwd] = useState('')
   const [oldPwd, setOldPwd] = useState('')
+  const [newManualPwd, setNewManualPwd] = useState('')
   const [electionForm, setElectionForm] = useState(null)
   const [tempElectionName, setTempElectionName] = useState('')
   const fileInputRef = useRef(null)
@@ -141,6 +142,16 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       setNewPwd('')
       setOldPwd('')
       showMessage('Senha alterada')
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  async function changeManualPassword() {
+    if (newManualPwd.length < 4) return showMessage('Mínimo de 4 caracteres', 'error')
+    try {
+      const data = await callAdmin('admin_change_manual_password', { p_new_password: newManualPwd })
+      if (!data) throw new Error('Não foi possível alterar a senha')
+      setNewManualPwd('')
+      showMessage('Senha da votação manual alterada')
     } catch (e) { showMessage('Erro: ' + e.message, 'error') }
   }
 
@@ -592,6 +603,20 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                     Alterar
                   </button>
                 </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-slate-700 mb-2">Alterar Senha da Votação Manual</h3>
+              <p className="text-xs text-slate-500 mb-2">
+                Senha própria e independente, usada só na página <code>#votacaomanual</code> pelo mesário. Trocar aqui usa a sua senha de admin já autenticada — não é preciso saber a senha manual antiga (útil se o mesário esquecê-la).
+              </p>
+              <div className="flex gap-2">
+                <input type="password" placeholder="Nova senha da votação manual (mín. 4 caracteres)" value={newManualPwd} onChange={e => setNewManualPwd(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+                <button type="button" onClick={changeManualPassword} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm">
+                  Alterar
+                </button>
               </div>
             </div>
 
@@ -1110,6 +1135,9 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                 não pelo dispositivo/navegador: não existe mais um "token de liberação" manual para o admin apagar. Ao final
                 da votação, a própria tela de comprovante libera o aparelho para o próximo eleitor. Não usamos fingerprint
                 (impressão digital do navegador) nem geolocalização.
+              </p>
+              <p className="mt-2">
+                A página <code>#votacaomanual</code> (mesário) tem uma <b>senha própria</b>, diferente da senha de admin — altere-a na seção "Alterar Senha da Votação Manual" na aba Geral.
               </p>
             </div>
 

@@ -13,10 +13,12 @@ Sistema de votação eletrônica **multi-sessão** com backend em **Supabase** (
 - ✅ Geração em lote de códigos de votação com exportação em PDF pronto para impressão e recorte
 - ✅ Gestão individual de códigos: resetar (destravar sem apagar votos) ou apagar (remove o código e os votos feitos com ele) — inclusive em lote (todos de uma vez)
 - ✅ Módulo de cédulas manuais (`#votacaomanual`): códigos de 4 dígitos próprios e distintos dos códigos do eleitor, PDF com o código + lista de candidatos para marcação em papel, código digitado uma única vez libera todas as sessões, e aparece na Auditoria identificado como "Mesário (manual)"
+- ✅ Senha própria e independente para a página de votação manual, alterável pelo painel admin sem precisar da senha antiga
 - ✅ "Modo urna": bloqueia o botão Voltar do navegador e avisa antes de atualizar/fechar a aba, para o eleitor não perder o progresso da votação
 - ✅ Comprovante de votação com código único (`VT-YYYYMMDD-XXXXXX`)
 - ✅ Painel administrativo completo (CRUD de sessões, códigos, resultados, auditoria, segurança)
-- ✅ Resultados com gráficos de barras e pizza + exportação Excel e PDF
+- ✅ Resultados com gráficos de barras (horizontal, com votos e porcentagem) e pizza + exportação Excel e PDF
+- ✅ Clique no gráfico de barras abre uma janela separada com apuração em tempo real (auto-atualiza a cada 4s), ideal para projetar em outra tela para o público acompanhar
 - ✅ PDF do comprovante de votação baixado direto no dispositivo
 - ✅ Senha de admin com hash + salt no banco
 - ✅ Tela de erro amigável se faltar configuração
@@ -38,6 +40,7 @@ votacao-supabase/
 │   ├── migrations/0004_gerenciar_codigos.sql  # Resetar/apagar códigos de votação
 │   ├── migrations/0005_reset_apagar_todos_codigos.sql  # Resetar/apagar TODOS os códigos de uma vez
 │   ├── migrations/0006_cedulas_manuais.sql    # Módulo de cédulas manuais (mesário)
+│   ├── migrations/0007_senha_votacao_manual.sql  # Senha própria para a votação manual
 │   └── seed/seed.sql             # Dados iniciais
 ├── index.html
 ├── package.json
@@ -78,9 +81,10 @@ git push -u origin main
 8. Crie **outra** query, abra o arquivo `supabase/migrations/0004_gerenciar_codigos.sql`, copie todo o conteúdo e rode também (permite resetar/apagar códigos de votação).
 9. Crie **outra** query, abra o arquivo `supabase/migrations/0005_reset_apagar_todos_codigos.sql`, copie todo o conteúdo e rode também (permite resetar/apagar TODOS os códigos de uma vez).
 10. Crie **outra** query, abra o arquivo `supabase/migrations/0006_cedulas_manuais.sql`, copie todo o conteúdo e rode também (cria o módulo de cédulas manuais para o mesário).
-11. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
-12. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3.
-13. Vá em **Settings → API** e copie:
+11. Crie **outra** query, abra o arquivo `supabase/migrations/0007_senha_votacao_manual.sql`, copie todo o conteúdo e rode também (cria a senha própria da votação manual — padrão inicial `manual123`, troque depois no painel).
+12. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
+13. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3.
+14. Vá em **Settings → API** e copie:
    - **Project URL** (ex: `https://abcdefgh.supabase.co`) — esse é o seu `VITE_SUPABASE_URL`
    - **anon public key** (uma string JWT longa começando com `eyJhbGc...`) — esse é o seu `VITE_SUPABASE_ANON_KEY`
 
@@ -107,7 +111,7 @@ git push -u origin main
 
 1. Acesse a URL pública da Vercel. A tela de boas-vindas deve aparecer com o nome da eleição.
 2. Para abrir o painel admin, acesse `https://sua-url.vercel.app/#admin` e entre com a senha `admin123` (altere depois no painel).
-3. Para a votação manual do mesário, acesse `https://sua-url.vercel.app/#votacaomanual` (mesma senha de admin).
+3. Para a votação manual do mesário, acesse `https://sua-url.vercel.app/#votacaomanual` (senha própria, padrão inicial `manual123` — altere na aba Geral do painel admin).
 4. Vote como eleitor em outra aba/celular para verificar que está tudo funcional.
 
 > ⚠️ **Se a página ficar em branco**, abra o DevTools (F12) → Console. O sistema agora loga o status das variáveis de ambiente automaticamente:
@@ -166,6 +170,11 @@ Para o **Docker local** há também `POSTGRES_PASSWORD`, `JWT_SECRET` e `SUPABAS
 
 - Senha inicial: **`admin123`**
 - Altere após o primeiro acesso pelo painel admin (aba "Geral" → "Alterar Senha")
+
+## 🗳️ Senha padrão da votação manual
+
+- Senha inicial: **`manual123`** (independente da senha de admin)
+- Altere pelo painel admin (aba "Geral" → "Alterar Senha da Votação Manual")
 
 ---
 

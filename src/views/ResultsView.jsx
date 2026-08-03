@@ -25,12 +25,46 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
       const colors = candidates.map((_, i) => `hsl(${(i*360)/Math.max(1,candidates.length)}, 70%, 55%)`)
       const labels = candidates.map(c => c.name)
       const data = candidates.map(c => c.votes)
+      const percents = candidates.map(c => totalValid > 0 ? ((c.votes / totalValid) * 100).toFixed(1) : '0.0')
+
+      // Plugin local (sem dependência externa) que escreve "N votos (X%)"
+      // logo após a ponta de cada barra horizontal.
+      const barLabelsPlugin = {
+        id: 'barLabelsPlugin',
+        afterDatasetsDraw(chart) {
+          const { ctx } = chart
+          const meta = chart.getDatasetMeta(0)
+          meta.data.forEach((bar, index) => {
+            const label = `${data[index]} (${percents[index]}%)`
+            ctx.save()
+            ctx.fillStyle = '#1e293b'
+            ctx.font = 'bold 12px sans-serif'
+            ctx.textAlign = 'left'
+            ctx.textBaseline = 'middle'
+            ctx.fillText(label, bar.x + 6, bar.y)
+            ctx.restore()
+          })
+        }
+      }
 
       if (barRef.current) {
         barChartRef.current = new Chart(barRef.current, {
           type: 'bar',
           data: { labels, datasets: [{ label: 'Votos', data, backgroundColor: colors, borderRadius: 6 }] },
-          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { right: 70 } },
+            plugins: {
+              legend: { display: false },
+              tooltip: { callbacks: { label: (ctx) => `${ctx.raw} voto(s) (${percents[ctx.dataIndex]}%)` } }
+            },
+            scales: {
+              x: { beginAtZero: true, ticks: { precision: 0 } }
+            }
+          },
+          plugins: [barLabelsPlugin]
         })
       }
       if (pieRef.current) {
@@ -49,6 +83,12 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
       if (pieChartRef.current) pieChartRef.current.destroy()
     }
   }, [sessionId, JSON.stringify(candidates), blank])
+
+  function openPublicWindow() {
+    if (!session) return
+    const url = `${window.location.origin}${window.location.pathname}#resultadospublicos:${session.session_id}`
+    window.open(url, '_blank', 'width=1280,height=800,menubar=no,toolbar=no')
+  }
 
   function exportExcel() {
     if (!session) return
@@ -200,9 +240,26 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
         </table>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-1">
+        <p className="text-xs text-slate-400 flex items-center gap-1">
+          <Icon name="maximize" className="w-3 h-3" /> Clique no gráfico de barras para abrir em uma nova janela e projetar em outra tela
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
         <div className="bg-slate-50 p-4 rounded-lg">
-          <div className="h-72"><canvas ref={barRef}></canvas></div>
+          <div
+            className="h-72 relative cursor-pointer group"
+            onClick={openPublicWindow}
+            title="Clique para abrir em uma nova janela (ideal para projetar em outra tela para o público acompanhar)"
+          >
+            <canvas ref={barRef}></canvas>
+            <div className="absolute inset-x-0 bottom-0 flex justify-center pb-1 opacity-0 group-hover:opacity-100 transition pointer-events-none">
+              <span className="bg-slate-800/85 text-white text-xs px-3 py-1 rounded-full flex items-center gap-1">
+                <Icon name="maximize" className="w-3 h-3" /> Clique para abrir em nova janela (projeção)
+              </span>
+            </div>
+          </div>
         </div>
         <div className="bg-slate-50 p-4 rounded-lg">
           <div className="h-72"><canvas ref={pieRef}></canvas></div>

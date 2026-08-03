@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Icon } from '../components/Icon'
 import { supabase, ELECTION_ID } from '../lib/supabase'
 
-export default function AdminLogin({ onLogin, onBack, title = 'Painel Administrativo', subtitle = 'Acesso restrito' }) {
+export default function AdminLogin({ onLogin, onBack, title = 'Painel Administrativo', subtitle = 'Acesso restrito', verifyRpc = 'verify_admin' }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -12,7 +12,7 @@ export default function AdminLogin({ onLogin, onBack, title = 'Painel Administra
     setError('')
     setLoading(true)
     try {
-      const { data, error: rpcErr } = await supabase.rpc('verify_admin', {
+      const { data, error: rpcErr } = await supabase.rpc(verifyRpc, {
         p_election_id: ELECTION_ID,
         p_password: password
       })

@@ -10,6 +10,7 @@ import FinalScreen from './views/FinalScreen'
 import AdminLogin from './views/AdminLogin'
 import AdminPanel from './views/AdminPanel'
 import ManualVotingScreen from './views/ManualVotingScreen'
+import PublicResultsScreen from './views/PublicResultsScreen'
 
 function ConfigError({ message }) {
   return (
@@ -79,6 +80,8 @@ function ErrorScreen({ error, onRetry }) {
 // o "modo urna" (bloqueio de voltar + aviso de atualização) fica ativo.
 const KIOSK_LOCK_SCREENS = ['welcome', 'codeEntry', 'voting', 'sessionDone', 'final']
 
+const PUBLIC_RESULTS_HASH_PREFIX = '#resultadospublicos:'
+
 export default function App() {
   const [screen, setScreen] = useState('loading')
   const [election, setElection] = useState(null)
@@ -88,23 +91,29 @@ export default function App() {
   const [lastVotedSessionId, setLastVotedSessionId] = useState(null)
   const [lastVotedResult, setLastVotedResult] = useState(null)
   const [finalReceipt, setFinalReceipt] = useState(null)
-  const [authOk, setAuthOk] = useState(() => sessionStorage.getItem('admin_auth') === '1')
+  const [publicResultsSessionId, setPublicResultsSessionId] = useState('')
+  const [adminAuthOk, setAdminAuthOk] = useState(() => sessionStorage.getItem('admin_auth') === '1')
+  const [manualAuthOk, setManualAuthOk] = useState(() => sessionStorage.getItem('manual_auth') === '1')
   const tapCount = useRef(0)
   const tapTimer = useRef(null)
 
-  // Sincroniza tela com o hash da URL (#admin ou #votacaomanual)
+  // Sincroniza tela com o hash da URL (#admin, #votacaomanual ou #resultadospublicos:<sessionId>)
   useEffect(() => {
     function syncHash() {
-      if (window.location.hash === '#admin') {
-        setScreen(authOk ? 'admin' : 'adminLogin')
-      } else if (window.location.hash === '#votacaomanual') {
-        setScreen(authOk ? 'manualVoting' : 'manualVotingLogin')
+      const hash = window.location.hash
+      if (hash === '#admin') {
+        setScreen(adminAuthOk ? 'admin' : 'adminLogin')
+      } else if (hash === '#votacaomanual') {
+        setScreen(manualAuthOk ? 'manualVoting' : 'manualVotingLogin')
+      } else if (hash.startsWith(PUBLIC_RESULTS_HASH_PREFIX)) {
+        setPublicResultsSessionId(hash.slice(PUBLIC_RESULTS_HASH_PREFIX.length))
+        setScreen('publicResults')
       }
     }
     syncHash()
     window.addEventListener('hashchange', syncHash)
     return () => window.removeEventListener('hashchange', syncHash)
-  }, [authOk])
+  }, [adminAuthOk, manualAuthOk])
 
   // Verificação inicial (uma única vez)
   useEffect(() => {
@@ -160,6 +169,24 @@ export default function App() {
       if (!data) throw new Error('Eleição não encontrada. Verifique se o seed foi executado no Supabase e se o VITE_ELECTION_ID está correto.')
       setElection(data)
 
+      // Rotas administrativas/de apoio têm prioridade sobre o fluxo do
+      // eleitor: mesmo que este navegador tenha um voter_token guardado
+      // (ex: quem administra também já votou nele antes), essas telas
+      // nunca devem ser desviadas para o comprovante do eleitor.
+      if (window.location.hash === '#admin') {
+        setScreen(adminAuthOk ? 'admin' : 'adminLogin')
+        return
+      }
+      if (window.location.hash === '#votacaomanual') {
+        setScreen(manualAuthOk ? 'manualVoting' : 'manualVotingLogin')
+        return
+      }
+      if (window.location.hash.startsWith(PUBLIC_RESULTS_HASH_PREFIX)) {
+        setPublicResultsSessionId(window.location.hash.slice(PUBLIC_RESULTS_HASH_PREFIX.length))
+        setScreen('publicResults')
+        return
+      }
+
       // Só existe voter_token depois que o eleitor digita um código de
       // votação válido (ver CodeEntryScreen). Antes disso não há status
       // a consultar - o eleitor começa do zero.
@@ -179,15 +206,6 @@ export default function App() {
         }
       } else {
         setVoterStatus({ completed: [], final_receipt: null })
-      }
-      // Se a URL já tem #admin ou #votacaomanual, mantém na tela correspondente
-      if (window.location.hash === '#admin') {
-        setScreen(authOk ? 'admin' : 'adminLogin')
-        return
-      }
-      if (window.location.hash === '#votacaomanual') {
-        setScreen(authOk ? 'manualVoting' : 'manualVotingLogin')
-        return
       }
       setScreen('welcome')
     } catch (e) {
@@ -213,32 +231,51 @@ export default function App() {
   }
 
   function openAdmin() {
-    if (authOk) setScreen('admin')
+    if (adminAuthOk) setScreen('admin')
     else setScreen('adminLogin')
   }
 
   function handleAdminLogin(password) {
-    setAuthOk(true)
+    setAdminAuthOk(true)
     sessionStorage.setItem('admin_auth', '1')
     if (password) sessionStorage.setItem('admin_pwd', password)
-    setScreen(window.location.hash === '#votacaomanual' ? 'manualVoting' : 'admin')
+    setScreen('admin')
   }
 
   function handleAdminLogout() {
-    setAuthOk(false)
+    setAdminAuthOk(false)
     sessionStorage.removeItem('admin_auth')
     sessionStorage.removeItem('admin_pwd')
     // Limpa o hash para não voltar a exigir senha por causa do hashchange
-    if (window.location.hash === '#admin' || window.location.hash === '#votacaomanual') {
+    if (window.location.hash === '#admin') {
+      try { history.replaceState(null, '', window.location.pathname + window.location.search) } catch (_) {}
+    }
+    setScreen('welcome')
+  }
+
+  // A votação manual tem senha PRÓPRIA, independente da senha de admin
+  // (ver aba "Segurança" no painel admin para trocá-la).
+  function handleManualLogin(password) {
+    setManualAuthOk(true)
+    sessionStorage.setItem('manual_auth', '1')
+    if (password) sessionStorage.setItem('manual_pwd', password)
+    setScreen('manualVoting')
+  }
+
+  function handleManualLogout() {
+    setManualAuthOk(false)
+    sessionStorage.removeItem('manual_auth')
+    sessionStorage.removeItem('manual_pwd')
+    if (window.location.hash === '#votacaomanual') {
       try { history.replaceState(null, '', window.location.pathname + window.location.search) } catch (_) {}
     }
     setScreen('welcome')
   }
 
   // "Concluir e Liberar Sistema" na página do mesário: encerra a sessão
-  // administrativa (mesma senha usada para entrar) e volta para a urna.
+  // da votação manual e volta para a urna.
   function handleManualVotingClose() {
-    handleAdminLogout()
+    handleManualLogout()
   }
 
   // Inicia a votação. Se o eleitor ainda não tem um token (isto é, ainda
@@ -364,7 +401,8 @@ export default function App() {
       <AdminLogin
         title="Votação Manual"
         subtitle="Acesso restrito ao mesário"
-        onLogin={handleAdminLogin}
+        verifyRpc="verify_manual"
+        onLogin={handleManualLogin}
         onBack={() => { try { history.replaceState(null, '', window.location.pathname + window.location.search) } catch (_) {} setScreen('welcome') }}
       />
     )
@@ -375,6 +413,15 @@ export default function App() {
       <ManualVotingScreen
         election={election}
         onClose={handleManualVotingClose}
+      />
+    )
+  }
+
+  if (screen === 'publicResults') {
+    return (
+      <PublicResultsScreen
+        electionName={election?.name}
+        initialSessionId={publicResultsSessionId}
       />
     )
   }

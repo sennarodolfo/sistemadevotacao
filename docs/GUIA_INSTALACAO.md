@@ -20,9 +20,10 @@
 6. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0004_gerenciar_codigos.sql` e rode (permite resetar/apagar códigos de votação).
 7. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0005_reset_apagar_todos_codigos.sql` e rode (permite resetar/apagar TODOS os códigos de uma vez).
 8. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0006_cedulas_manuais.sql` e rode (cria o módulo de cédulas manuais para o mesário).
-9. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
-10. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
-11. **Settings → API** copie:
+9. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0007_senha_votacao_manual.sql` e rode (cria a senha própria da votação manual — padrão inicial `manual123`, troque depois no painel).
+10. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
+11. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
+12. **Settings → API** copie:
    - **Project URL** → `VITE_SUPABASE_URL`
    - **anon public key** → `VITE_SUPABASE_ANON_KEY`
 
@@ -36,7 +37,7 @@
    - `VITE_ELECTION_ID`
 4. Deploy.
 
-Acesse `/` para votar, `#admin` para o painel (senha padrão: `admin123`) e `#votacaomanual` para a votação manual do mesário (mesma senha).
+Acesse `/` para votar, `#admin` para o painel (senha padrão: `admin123`) e `#votacaomanual` para a votação manual do mesário (senha própria, padrão: `manual123`).
 
 ## 4. Rodar localmente
 
