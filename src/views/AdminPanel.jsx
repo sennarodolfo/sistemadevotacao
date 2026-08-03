@@ -292,7 +292,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     const cols = [
       { label: 'Origem', x: margin, w: 24 },
       { label: 'Código', x: margin + 24, w: 18 },
-      { label: 'Usado em', x: margin + 42, w: 32 },
+      { label: 'Iniciado em', x: margin + 42, w: 32 },
       { label: 'Sessões Concluídas', x: margin + 74, w: 30 },
       { label: 'Sessões Votadas', x: margin + 104, w: 75 },
       { label: 'Sessões Faltantes', x: margin + 179, w: pageW - margin - (margin + 179) }
@@ -324,7 +324,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     drawHeader()
 
     voteCheck.incomplete.forEach(item => {
-      const usedAtText = item.used_at ? new Date(item.used_at).toLocaleString('pt-BR') : '-'
+      const usedAtText = item.started_at ? new Date(item.started_at).toLocaleString('pt-BR') : '-'
       const completedText = (item.completed_titles || []).map(s => s.session_title).join(', ') || '-'
       const missingText = (item.missing_titles || []).map(s => s.session_title).join(', ') || '-'
 
@@ -1321,7 +1321,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                 <div>
                   <h3 className="font-semibold text-slate-700">Conferência de Votos</h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    Verifica todos os códigos já utilizados (eleitor e cédula manual) e identifica quais <b>não votaram em todas as sessões ativas</b> — útil quando o total de votantes de uma sessão não bate com o das demais.
+                    Verifica todos os códigos já digitados (eleitor e cédula manual) e identifica quais <b>não votaram em todas as sessões ativas</b> — inclusive os que ainda não foram bloqueados por estarem incompletos. Útil quando o total de votantes de uma sessão não bate com o das demais.
                   </p>
                 </div>
                 <button
@@ -1362,7 +1362,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                             <tr className="bg-red-50 text-left">
                               <th className="p-3 font-semibold">Origem</th>
                               <th className="p-3 font-semibold">Código</th>
-                              <th className="p-3 font-semibold">Usado em</th>
+                              <th className="p-3 font-semibold">Iniciado em</th>
                               <th className="p-3 font-semibold text-center">Concluídas</th>
                               <th className="p-3 font-semibold">Sessões Votadas</th>
                               <th className="p-3 font-semibold">Sessões Faltantes</th>
@@ -1377,7 +1377,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                                   </span>
                                 </td>
                                 <td className="p-3 font-mono font-semibold tracking-widest">{item.code}</td>
-                                <td className="p-3 text-xs">{item.used_at ? new Date(item.used_at).toLocaleString('pt-BR') : '-'}</td>
+                                <td className="p-3 text-xs">{item.started_at ? new Date(item.started_at).toLocaleString('pt-BR') : '-'}</td>
                                 <td className="p-3 text-center font-mono">{item.completed_sessions}/{voteCheck.total_sessions}</td>
                                 <td className="p-3 text-xs text-slate-600">{(item.completed_titles || []).map(s => s.session_title).join(', ') || '-'}</td>
                                 <td className="p-3 text-xs text-red-700 font-medium">{(item.missing_titles || []).map(s => s.session_title).join(', ') || '-'}</td>
