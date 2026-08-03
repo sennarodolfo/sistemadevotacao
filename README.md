@@ -10,6 +10,7 @@ Sistema de votação eletrônica **multi-sessão** com backend em **Supabase** (
 - ✅ Múltiplas sessões de votação em uma mesma eleição (ex: Presbíteros, Diáconos, etc.)
 - ✅ Eleição por assembleia: número de membros presentes por sessão, com percentual de cada candidato calculado sobre esse total (não sobre o total de votos) e indicação de "Eleito" (50% + 1)
 - ✅ Auditoria exportável em PDF, além da lista no painel
+- ✅ Conferência de votos: identifica códigos (eleitor ou cédula manual) que não votaram em todas as sessões, com relatório exportável em PDF
 - ✅ Foto opcional de cada candidato (upload no cadastro, com zoom ao clicar na votação)
 - ✅ Autenticação do eleitor por código numérico de 4 dígitos (uso único, gerado pelo admin)
 - ✅ Geração em lote de códigos de votação com exportação em PDF pronto para impressão e recorte
@@ -44,6 +45,7 @@ votacao-supabase/
 │   ├── migrations/0006_cedulas_manuais.sql    # Módulo de cédulas manuais (mesário)
 │   ├── migrations/0007_senha_votacao_manual.sql  # Senha própria para a votação manual
 │   ├── migrations/0008_eleitores_presentes.sql  # Nº de eleitores presentes por sessão (base do %)
+│   ├── migrations/0009_conferencia_votos.sql  # Conferência de votos (códigos incompletos)
 │   └── seed/seed.sql             # Dados iniciais
 ├── index.html
 ├── package.json
@@ -86,9 +88,10 @@ git push -u origin main
 10. Crie **outra** query, abra o arquivo `supabase/migrations/0006_cedulas_manuais.sql`, copie todo o conteúdo e rode também (cria o módulo de cédulas manuais para o mesário).
 11. Crie **outra** query, abra o arquivo `supabase/migrations/0007_senha_votacao_manual.sql`, copie todo o conteúdo e rode também (cria a senha própria da votação manual — padrão inicial `manual123`, troque depois no painel).
 12. Crie **outra** query, abra o arquivo `supabase/migrations/0008_eleitores_presentes.sql`, copie todo o conteúdo e rode também (adiciona o número de eleitores presentes por sessão, base do cálculo de percentual).
-13. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
-14. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3.
-15. Vá em **Settings → API** e copie:
+13. Crie **outra** query, abra o arquivo `supabase/migrations/0009_conferencia_votos.sql`, copie todo o conteúdo e rode também (permite conferir quais códigos não votaram em todas as sessões).
+14. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
+15. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3.
+16. Vá em **Settings → API** e copie:
    - **Project URL** (ex: `https://abcdefgh.supabase.co`) — esse é o seu `VITE_SUPABASE_URL`
    - **anon public key** (uma string JWT longa começando com `eyJhbGc...`) — esse é o seu `VITE_SUPABASE_ANON_KEY`
 

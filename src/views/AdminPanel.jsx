@@ -47,6 +47,8 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
   const [results, setResults] = useState([])
   const [resultsSessionId, setResultsSessionId] = useState(null)
   const [receipts, setReceipts] = useState([])
+  const [voteCheck, setVoteCheck] = useState(null)
+  const [checkingVotes, setCheckingVotes] = useState(false)
   const [sessions, setSessions] = useState([])
   const [editingSession, setEditingSession] = useState(null)
   const [showSessionModal, setShowSessionModal] = useState(false)
@@ -176,6 +178,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
 
   async function openAuditTab() {
     setTab('audit')
+    setVoteCheck(null)
     try {
       const data = await callAdmin('admin_list_receipts', {})
       setReceipts(data || [])
@@ -259,6 +262,99 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
 
     const slug = (election?.name || 'eleicao').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)
     doc.save(`auditoria-${slug}-${timestampSlug()}.pdf`)
+  }
+
+  async function checkIncompleteVoters() {
+    setCheckingVotes(true)
+    try {
+      const data = await callAdmin('admin_check_incomplete_voters', {})
+      if (data?.error) throw new Error(data.error)
+      setVoteCheck(data)
+      const n = (data.incomplete || []).length
+      if (n === 0) {
+        showMessage('Conferência concluída: todos os códigos utilizados votaram em todas as sessões ✅')
+      } else {
+        showMessage(`Conferência concluída: ${n} código(s) não votaram em todas as sessões`, 'error')
+      }
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+    finally { setCheckingVotes(false) }
+  }
+
+  function exportVoteCheckPDF() {
+    if (!voteCheck || (voteCheck.incomplete || []).length === 0) return showMessage('Nenhuma pendência para exportar', 'error')
+
+    const doc = new jsPDF({ orientation: 'landscape' })
+    const margin = 10
+    const pageW = doc.internal.pageSize.getWidth()
+    const pageH = doc.internal.pageSize.getHeight()
+    let y = margin
+
+    const cols = [
+      { label: 'Origem', x: margin, w: 24 },
+      { label: 'Código', x: margin + 24, w: 18 },
+      { label: 'Usado em', x: margin + 42, w: 32 },
+      { label: 'Sessões Concluídas', x: margin + 74, w: 30 },
+      { label: 'Sessões Votadas', x: margin + 104, w: 75 },
+      { label: 'Sessões Faltantes', x: margin + 179, w: pageW - margin - (margin + 179) }
+    ]
+
+    function drawHeader() {
+      doc.setFillColor(180, 40, 40)
+      doc.rect(0, 0, pageW, 22, 'F')
+      doc.setTextColor(255, 255, 255)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(14)
+      doc.text('Conferência de Votos - Códigos Incompletos', pageW / 2, 12, { align: 'center' })
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.text(election?.name || '', pageW / 2, 18, { align: 'center' })
+
+      y = 30
+      doc.setTextColor(0, 0, 0)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8)
+      cols.forEach(c => doc.text(c.label, c.x, y))
+      y += 4
+      doc.setDrawColor(180)
+      doc.line(margin, y, pageW - margin, y)
+      y += 4
+      doc.setFont('helvetica', 'normal')
+    }
+
+    drawHeader()
+
+    voteCheck.incomplete.forEach(item => {
+      const usedAtText = item.used_at ? new Date(item.used_at).toLocaleString('pt-BR') : '-'
+      const completedText = (item.completed_titles || []).map(s => s.session_title).join(', ') || '-'
+      const missingText = (item.missing_titles || []).map(s => s.session_title).join(', ') || '-'
+
+      doc.setFontSize(7.5)
+      const completedLines = doc.splitTextToSize(completedText, cols[4].w - 2)
+      const missingLines = doc.splitTextToSize(missingText, cols[5].w - 2)
+      const rowLines = Math.max(1, completedLines.length, missingLines.length)
+      const rowHeight = rowLines * 3.5 + 2
+
+      if (y + rowHeight > pageH - margin) {
+        doc.addPage()
+        drawHeader()
+      }
+
+      doc.text(item.origin === 'mesário' ? 'Mesário' : 'Eleitor', cols[0].x, y + 3)
+      doc.text(item.code, cols[1].x, y + 3)
+      doc.text(usedAtText, cols[2].x, y + 3)
+      doc.text(`${item.completed_sessions}/${voteCheck.total_sessions}`, cols[3].x, y + 3)
+      doc.text(completedLines, cols[4].x, y + 3)
+      doc.setTextColor(180, 40, 40)
+      doc.text(missingLines, cols[5].x, y + 3)
+      doc.setTextColor(0, 0, 0)
+
+      y += rowHeight
+      doc.setDrawColor(230)
+      doc.line(margin, y - 1, pageW - margin, y - 1)
+    })
+
+    const slug = (election?.name || 'eleicao').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)
+    doc.save(`conferencia-votos-${slug}-${timestampSlug()}.pdf`)
   }
 
   async function openCodesTab() {
@@ -1215,6 +1311,82 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                   })}
                 </tbody>
               </table>
+            </div>
+
+            <div className="border-t pt-4 mt-6">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <div>
+                  <h3 className="font-semibold text-slate-700">Conferência de Votos</h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Verifica todos os códigos já utilizados (eleitor e cédula manual) e identifica quais <b>não votaram em todas as sessões ativas</b> — útil quando o total de votantes de uma sessão não bate com o das demais.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={checkIncompleteVoters}
+                  disabled={checkingVotes}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm disabled:opacity-50 flex-shrink-0"
+                >
+                  <Icon name="check" className="w-4 h-4" />
+                  {checkingVotes ? 'Conferindo...' : 'Conferir Votos'}
+                </button>
+              </div>
+
+              {voteCheck && (
+                <div className="mt-3">
+                  {voteCheck.incomplete.length === 0 ? (
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-lg p-3 flex items-center gap-2">
+                      <Icon name="check" className="w-4 h-4 flex-shrink-0" />
+                      Todos os códigos utilizados votaram em todas as {voteCheck.total_sessions} sessão(ões) ativa(s). Nenhuma pendência encontrada.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <div className="bg-red-50 border border-red-200 text-red-800 text-sm rounded-lg p-3 flex-1">
+                          ⚠️ <b>{voteCheck.incomplete.length}</b> código(s) não completaram as {voteCheck.total_sessions} sessão(ões) ativa(s).
+                        </div>
+                        <button
+                          type="button"
+                          onClick={exportVoteCheckPDF}
+                          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm flex-shrink-0"
+                        >
+                          <Icon name="download" className="w-4 h-4" /> Exportar Relatório em PDF
+                        </button>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-red-50 text-left">
+                              <th className="p-3 font-semibold">Origem</th>
+                              <th className="p-3 font-semibold">Código</th>
+                              <th className="p-3 font-semibold">Usado em</th>
+                              <th className="p-3 font-semibold text-center">Concluídas</th>
+                              <th className="p-3 font-semibold">Sessões Votadas</th>
+                              <th className="p-3 font-semibold">Sessões Faltantes</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {voteCheck.incomplete.map(item => (
+                              <tr key={`${item.origin}-${item.code}`} className="border-b hover:bg-slate-50">
+                                <td className="p-3">
+                                  <span className={`text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${item.origin === 'mesário' ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                                    {item.origin === 'mesário' ? 'Mesário (manual)' : 'Eleitor'}
+                                  </span>
+                                </td>
+                                <td className="p-3 font-mono font-semibold tracking-widest">{item.code}</td>
+                                <td className="p-3 text-xs">{item.used_at ? new Date(item.used_at).toLocaleString('pt-BR') : '-'}</td>
+                                <td className="p-3 text-center font-mono">{item.completed_sessions}/{voteCheck.total_sessions}</td>
+                                <td className="p-3 text-xs text-slate-600">{(item.completed_titles || []).map(s => s.session_title).join(', ') || '-'}</td>
+                                <td className="p-3 text-xs text-red-700 font-medium">{(item.missing_titles || []).map(s => s.session_title).join(', ') || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
