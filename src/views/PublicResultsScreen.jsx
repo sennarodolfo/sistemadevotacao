@@ -55,6 +55,15 @@ export default function PublicResultsScreen({ electionName, initialSessionId }) 
   const candidates = session?.candidates || []
   const blank = session?.blank_votes || 0
   const totalValid = candidates.reduce((a, c) => a + c.votes, 0)
+  const totalVoters = session?.unique_voters || 0
+
+  // Mesma regra do painel admin: eleição por assembleia, percentual sobre
+  // o Nº DE ELEITORES PRESENTES informado na sessão (não sobre o total de
+  // votos). Cai para o total de votos se a sessão não tiver esse número.
+  const registeredVoters = session?.registered_voters ?? null
+  const usingRegistered = !!(registeredVoters && registeredVoters > 0)
+  const percentBase = usingRegistered ? registeredVoters : (totalValid + blank)
+  const electedThreshold = usingRegistered ? Math.floor(registeredVoters / 2) + 1 : null
 
   useEffect(() => {
     if (!canvasRef.current || !session) return
@@ -68,7 +77,7 @@ export default function PublicResultsScreen({ electionName, initialSessionId }) 
       const sorted = [...candidates].sort((a, b) => b.votes - a.votes)
       const labels = sorted.map(c => c.name)
       const data = sorted.map(c => c.votes)
-      const percents = sorted.map(c => totalValid > 0 ? ((c.votes / totalValid) * 100).toFixed(1) : '0.0')
+      const percents = sorted.map(c => percentBase > 0 ? ((c.votes / percentBase) * 100).toFixed(1) : '0.0')
       const colors = sorted.map((_, i) => `hsl(${(i * 360) / Math.max(1, sorted.length)}, 70%, 60%)`)
 
       const dataLabelPlugin = {
@@ -114,7 +123,7 @@ export default function PublicResultsScreen({ electionName, initialSessionId }) 
       if (chartRef.current) chartRef.current.destroy()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, JSON.stringify(candidates)])
+  }, [sessionId, JSON.stringify(candidates), registeredVoters])
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-8">
@@ -146,10 +155,16 @@ export default function PublicResultsScreen({ electionName, initialSessionId }) 
 
         {session && (
           <>
-            <div className="grid grid-cols-3 gap-4 mb-8">
+            <div className={`grid ${usingRegistered ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'} gap-4 mb-6`}>
+              {usingRegistered && (
+                <div className="bg-slate-800 rounded-xl p-5 text-center">
+                  <p className="text-slate-400 text-sm">Eleitores Presentes</p>
+                  <p className="text-4xl font-bold">{registeredVoters}</p>
+                </div>
+              )}
               <div className="bg-slate-800 rounded-xl p-5 text-center">
-                <p className="text-slate-400 text-sm">Eleitores Únicos</p>
-                <p className="text-4xl font-bold">{session.unique_voters || 0}</p>
+                <p className="text-slate-400 text-sm">{usingRegistered ? 'Eleitores Votantes' : 'Eleitores Únicos'}</p>
+                <p className={`text-4xl font-bold ${usingRegistered && totalVoters !== registeredVoters ? 'text-amber-400' : ''}`}>{totalVoters}</p>
               </div>
               <div className="bg-slate-800 rounded-xl p-5 text-center">
                 <p className="text-slate-400 text-sm">Votos Válidos</p>
@@ -160,6 +175,12 @@ export default function PublicResultsScreen({ electionName, initialSessionId }) 
                 <p className="text-4xl font-bold text-slate-300">{blank}</p>
               </div>
             </div>
+
+            {usingRegistered && (
+              <p className="text-center text-slate-400 text-sm mb-6">
+                Percentual sobre os <b className="text-slate-200">{registeredVoters} eleitores presentes</b> · Eleito com 50% + 1 = <b className="text-slate-200">{electedThreshold} voto(s)</b>
+              </p>
+            )}
 
             <div className="bg-slate-800 rounded-xl p-6" style={{ height: `${Math.max(320, candidates.length * 72)}px` }}>
               <canvas ref={canvasRef}></canvas>

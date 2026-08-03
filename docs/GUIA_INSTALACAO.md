@@ -21,9 +21,10 @@
 7. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0005_reset_apagar_todos_codigos.sql` e rode (permite resetar/apagar TODOS os códigos de uma vez).
 8. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0006_cedulas_manuais.sql` e rode (cria o módulo de cédulas manuais para o mesário).
 9. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0007_senha_votacao_manual.sql` e rode (cria a senha própria da votação manual — padrão inicial `manual123`, troque depois no painel).
-10. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
-11. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
-12. **Settings → API** copie:
+10. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0008_eleitores_presentes.sql` e rode (adiciona o número de eleitores presentes por sessão, base do cálculo de percentual).
+11. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
+12. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
+13. **Settings → API** copie:
    - **Project URL** → `VITE_SUPABASE_URL`
    - **anon public key** → `VITE_SUPABASE_ANON_KEY`
 

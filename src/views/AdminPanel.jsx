@@ -409,11 +409,15 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       const candidates = (form.candidates || [])
         .map(c => ({ name: (c.name || '').trim(), photo_url: c.photo_url || null }))
         .filter(c => c.name)
+      const registeredVoters = form.registered_voters === '' || form.registered_voters === null || form.registered_voters === undefined
+        ? null
+        : parseInt(form.registered_voters)
       if (form.id) {
         await callAdmin('admin_update_session', {
           p_session_id: form.id,
           p_title: form.title,
           p_votes_required: parseInt(form.votes_required),
+          p_registered_voters: registeredVoters,
           p_candidates: candidates,
           p_is_active: form.is_active
         })
@@ -421,6 +425,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
         await callAdmin('admin_create_session', {
           p_title: form.title,
           p_votes_required: parseInt(form.votes_required),
+          p_registered_voters: registeredVoters,
           p_candidates: candidates
         })
       }
@@ -647,7 +652,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
           <div className="bg-white card-shadow rounded-2xl p-6 fade-in">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-slate-800">Sessões de Votação</h2>
-              <button type="button" onClick={() => { setEditingSession({ title: '', votes_required: 1, candidates: [], is_active: true }); setShowSessionModal(true) }}
+              <button type="button" onClick={() => { setEditingSession({ title: '', votes_required: 1, registered_voters: null, candidates: [], is_active: true }); setShowSessionModal(true) }}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
                 <Icon name="plus" className="w-4 h-4" /> Nova Sessão
               </button>
@@ -660,7 +665,10 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                   <div className="bg-indigo-100 text-indigo-700 font-bold w-8 h-8 rounded-full flex items-center justify-center">{i + 1}</div>
                   <div className="flex-1">
                     <p className="font-semibold">{s.title}</p>
-                    <p className="text-xs text-slate-500">{s.votes_required} voto(s) • {s.candidates?.length || 0} candidatos</p>
+                    <p className="text-xs text-slate-500">
+                      {s.votes_required} voto(s) • {s.candidates?.length || 0} candidatos
+                      {s.registered_voters != null && <> • {s.registered_voters} eleitores presentes</>}
+                    </p>
                   </div>
                   <button type="button" onClick={() => resetSession(s)} className="text-amber-600 hover:bg-amber-50 p-2 rounded" title="Reiniciar sessão">
                     <Icon name="refresh" className="w-4 h-4" />
@@ -1278,6 +1286,20 @@ function SessionModal({ session, onSave, onClose }) {
                 className="flex-1" />
             </div>
             <p className="text-xs text-slate-500 mt-1">O eleitor pode misturar candidatos e brancos livremente, totalizando este número.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Número de eleitores presentes</label>
+            <input
+              type="number"
+              min="0"
+              value={form.registered_voters ?? ''}
+              onChange={e => setForm({ ...form, registered_voters: e.target.value === '' ? null : parseInt(e.target.value) || 0 })}
+              placeholder="Ex: 100"
+              className="w-32 px-3 py-2 border border-slate-300 rounded-lg"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Quantidade de eleitores presentes na assembleia para esta sessão. O percentual de cada candidato na apuração é calculado em cima deste número (não do total de votos) — ex: com 100 eleitores presentes, um candidato com 80 votos aparece com 80%. Ao final da votação, o número de votantes desta sessão deve bater com este valor.
+            </p>
           </div>
           <div>
             <div className="flex items-center justify-between mb-1">

@@ -16,6 +16,23 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
   const totalAll = totalValid + blank
   const totalVoters = session?.unique_voters || 0
 
+  // ===== Eleição por assembleia: percentual sobre o Nº DE ELEITORES
+  // PRESENTES informado na sessão (não sobre o total de votos). Ex: 100
+  // eleitores presentes, candidato com 80 votos => 80%. Se a sessão não
+  // tiver esse número informado, cai para o total de votos (comportamento
+  // anterior) como alternativa razoável.
+  const registeredVoters = session?.registered_voters ?? null
+  const usingRegistered = !!(registeredVoters && registeredVoters > 0)
+  const percentBase = usingRegistered ? registeredVoters : totalAll
+  const electedThreshold = usingRegistered ? Math.floor(registeredVoters / 2) + 1 : null
+
+  function pctOfBase(votes, digits = 2) {
+    return percentBase > 0 ? ((votes / percentBase) * 100).toFixed(digits) : (0).toFixed(digits)
+  }
+  function pctOfValid(votes, digits = 2) {
+    return totalValid > 0 ? ((votes / totalValid) * 100).toFixed(digits) : (0).toFixed(digits)
+  }
+
   useEffect(() => {
     if (barChartRef.current) barChartRef.current.destroy()
     if (pieChartRef.current) pieChartRef.current.destroy()
@@ -25,10 +42,11 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
       const colors = candidates.map((_, i) => `hsl(${(i*360)/Math.max(1,candidates.length)}, 70%, 55%)`)
       const labels = candidates.map(c => c.name)
       const data = candidates.map(c => c.votes)
-      const percents = candidates.map(c => totalValid > 0 ? ((c.votes / totalValid) * 100).toFixed(1) : '0.0')
+      const percents = candidates.map(c => pctOfBase(c.votes, 1))
 
       // Plugin local (sem dependência externa) que escreve "N votos (X%)"
-      // logo após a ponta de cada barra horizontal.
+      // logo após a ponta de cada barra horizontal. O percentual usa o
+      // número de eleitores presentes quando disponível.
       const barLabelsPlugin = {
         id: 'barLabelsPlugin',
         afterDatasetsDraw(chart) {
@@ -58,7 +76,7 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
             layout: { padding: { right: 70 } },
             plugins: {
               legend: { display: false },
-              tooltip: { callbacks: { label: (ctx) => `${ctx.raw} voto(s) (${percents[ctx.dataIndex]}%)` } }
+              tooltip: { callbacks: { label: (ctx) => `${ctx.raw} voto(s) (${percents[ctx.dataIndex]}%${usingRegistered ? ' dos eleitores' : ''})` } }
             },
             scales: {
               x: { beginAtZero: true, ticks: { precision: 0 } }
@@ -82,7 +100,8 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
       if (barChartRef.current) barChartRef.current.destroy()
       if (pieChartRef.current) pieChartRef.current.destroy()
     }
-  }, [sessionId, JSON.stringify(candidates), blank])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, JSON.stringify(candidates), blank, registeredVoters])
 
   function openPublicWindow() {
     if (!session) return
@@ -92,17 +111,25 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
 
   function exportExcel() {
     if (!session) return
+    const pctHeader = usingRegistered ? '% Eleitores Presentes' : '% Total'
     const rows = [
-      ['Posição', 'Candidato', 'Votos', '% Válidos', '% Total'],
+      ['Posição', 'Candidato', 'Votos', pctHeader, '% Válidos', ...(usingRegistered ? ['Eleito (50%+1)'] : [])],
       ...candidates.sort((a, b) => b.votes - a.votes).map((c, i) => [
         i + 1,
         c.name,
         c.votes,
-        totalValid > 0 ? ((c.votes / totalValid) * 100).toFixed(2) + '%' : '0.00%',
-        totalAll > 0 ? ((c.votes / totalAll) * 100).toFixed(2) + '%' : '0.00%'
+        pctOfBase(c.votes) + '%',
+        pctOfValid(c.votes) + '%',
+        ...(usingRegistered ? [c.votes >= electedThreshold ? 'Sim' : 'Não'] : [])
       ]),
-      ['-', 'Voto em Branco', blank, '-', totalAll > 0 ? ((blank / totalAll) * 100).toFixed(2) + '%' : '0.00%']
+      ['-', 'Voto em Branco', blank, pctOfBase(blank) + '%', '-', ...(usingRegistered ? ['-'] : [])]
     ]
+    if (usingRegistered) {
+      rows.push([])
+      rows.push(['Eleitores presentes', registeredVoters])
+      rows.push(['Eleitores votantes', totalVoters])
+      rows.push(['Limiar de eleição (50% + 1)', electedThreshold])
+    }
     const ws = XLSX.utils.aoa_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, session.title.slice(0, 30))
@@ -128,7 +155,10 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
     doc.setTextColor(0, 0, 0)
 
     doc.setFontSize(10)
-    doc.text(`Eleitores únicos: ${totalVoters} | Votos válidos: ${totalValid} | Brancos: ${blank}`, margin, y)
+    const summaryLine = usingRegistered
+      ? `Eleitores presentes: ${registeredVoters} | Eleitores votantes: ${totalVoters} | Votos válidos: ${totalValid} | Brancos: ${blank}`
+      : `Eleitores únicos: ${totalVoters} | Votos válidos: ${totalValid} | Brancos: ${blank}`
+    doc.text(summaryLine, margin, y)
     y += 10
 
     // Tabela
@@ -137,8 +167,9 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
     doc.text('Pos', margin, y)
     doc.text('Candidato', margin + 15, y)
     doc.text('Votos', margin + 90, y)
-    doc.text('% Válidos', margin + 110, y)
-    doc.text('% Total', margin + 145, y)
+    doc.text(usingRegistered ? '% Eleitores' : '% Total', margin + 110, y)
+    doc.text('% Válidos', margin + 145, y)
+    if (usingRegistered) doc.text('Eleito', margin + 175, y)
     y += 5
     doc.setDrawColor(200)
     doc.line(margin, y, 195, y)
@@ -149,15 +180,23 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
       doc.text(`${i + 1}º`, margin, y)
       doc.text(c.name, margin + 15, y)
       doc.text(String(c.votes), margin + 90, y)
-      doc.text(totalValid > 0 ? ((c.votes / totalValid) * 100).toFixed(2) + '%' : '0.00%', margin + 110, y)
-      doc.text(totalAll > 0 ? ((c.votes / totalAll) * 100).toFixed(2) + '%' : '0.00%', margin + 145, y)
+      doc.text(pctOfBase(c.votes) + '%', margin + 110, y)
+      doc.text(pctOfValid(c.votes) + '%', margin + 145, y)
+      if (usingRegistered) doc.text(c.votes >= electedThreshold ? 'Sim' : 'Não', margin + 175, y)
       y += 6
     })
     doc.text('-', margin, y)
     doc.text('Voto em Branco', margin + 15, y)
     doc.text(String(blank), margin + 90, y)
-    doc.text('-', margin + 110, y)
-    doc.text(totalAll > 0 ? ((blank / totalAll) * 100).toFixed(2) + '%' : '0.00%', margin + 145, y)
+    doc.text(pctOfBase(blank) + '%', margin + 110, y)
+    doc.text('-', margin + 145, y)
+
+    if (usingRegistered) {
+      y += 10
+      doc.setFont('helvetica', 'italic')
+      doc.setFontSize(8)
+      doc.text(`Percentual calculado sobre os ${registeredVoters} eleitores presentes. Eleito com 50% + 1 = ${electedThreshold} voto(s).`, margin, y)
+    }
 
     // Imagens dos gráficos
     if (barChartRef.current) {
@@ -193,20 +232,58 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
         </select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-indigo-50 p-4 rounded-lg">
-          <p className="text-sm text-slate-600">Total de Eleitores</p>
-          <p className="text-3xl font-bold text-indigo-700">{totalVoters}</p>
+      {usingRegistered ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
+          <div className="bg-indigo-50 p-4 rounded-lg">
+            <p className="text-sm text-slate-600">Eleitores Presentes</p>
+            <p className="text-3xl font-bold text-indigo-700">{registeredVoters}</p>
+          </div>
+          <div className={`p-4 rounded-lg ${totalVoters === registeredVoters ? 'bg-emerald-50' : 'bg-amber-50'}`}>
+            <p className="text-sm text-slate-600 flex items-center gap-1">
+              Eleitores Votantes
+              {totalVoters === registeredVoters
+                ? <Icon name="check" className="w-3.5 h-3.5 text-emerald-600" />
+                : <Icon name="x" className="w-3.5 h-3.5 text-amber-600" />}
+            </p>
+            <p className={`text-3xl font-bold ${totalVoters === registeredVoters ? 'text-emerald-700' : 'text-amber-700'}`}>{totalVoters}</p>
+          </div>
+          <div className="bg-emerald-50 p-4 rounded-lg">
+            <p className="text-sm text-slate-600">Votos Válidos</p>
+            <p className="text-3xl font-bold text-emerald-700">{totalValid}</p>
+          </div>
+          <div className="bg-slate-100 p-4 rounded-lg">
+            <p className="text-sm text-slate-600">Votos em Branco</p>
+            <p className="text-3xl font-bold text-slate-700">{blank}</p>
+          </div>
         </div>
-        <div className="bg-emerald-50 p-4 rounded-lg">
-          <p className="text-sm text-slate-600">Votos Válidos</p>
-          <p className="text-3xl font-bold text-emerald-700">{totalValid}</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+          <div className="bg-indigo-50 p-4 rounded-lg">
+            <p className="text-sm text-slate-600">Total de Eleitores</p>
+            <p className="text-3xl font-bold text-indigo-700">{totalVoters}</p>
+          </div>
+          <div className="bg-emerald-50 p-4 rounded-lg">
+            <p className="text-sm text-slate-600">Votos Válidos</p>
+            <p className="text-3xl font-bold text-emerald-700">{totalValid}</p>
+          </div>
+          <div className="bg-slate-100 p-4 rounded-lg">
+            <p className="text-sm text-slate-600">Votos em Branco</p>
+            <p className="text-3xl font-bold text-slate-700">{blank}</p>
+          </div>
         </div>
-        <div className="bg-slate-100 p-4 rounded-lg">
-          <p className="text-sm text-slate-600">Votos em Branco</p>
-          <p className="text-3xl font-bold text-slate-700">{blank}</p>
+      )}
+
+      {usingRegistered && totalVoters !== registeredVoters && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg p-2 mb-3">
+          ⚠️ O número de eleitores votantes ({totalVoters}) ainda não bate com o número de eleitores presentes informado ({registeredVoters}).
         </div>
-      </div>
+      )}
+
+      {usingRegistered && (
+        <p className="text-xs text-slate-500 mb-3">
+          Percentual calculado sobre os <b>{registeredVoters} eleitores presentes</b>. Eleito com 50% + 1 = <b>{electedThreshold} voto(s)</b>.
+        </p>
+      )}
 
       <div className="overflow-x-auto mb-6">
         <table className="w-full text-sm">
@@ -215,26 +292,38 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
               <th className="p-3 font-semibold">#</th>
               <th className="p-3 font-semibold">Candidato</th>
               <th className="p-3 font-semibold text-right">Votos</th>
+              <th className="p-3 font-semibold text-right">{usingRegistered ? '% Eleitores' : '% Total'}</th>
               <th className="p-3 font-semibold text-right">% Válidos</th>
-              <th className="p-3 font-semibold text-right">% Total</th>
+              {usingRegistered && <th className="p-3 font-semibold text-center">Eleito</th>}
             </tr>
           </thead>
           <tbody>
-            {[...candidates].sort((a, b) => b.votes - a.votes).map((c, i) => (
-              <tr key={c.id} className="border-b hover:bg-slate-50">
-                <td className="p-3">{i + 1}º</td>
-                <td className="p-3 font-medium">{c.name}</td>
-                <td className="p-3 text-right font-mono">{c.votes}</td>
-                <td className="p-3 text-right font-mono">{totalValid > 0 ? ((c.votes / totalValid) * 100).toFixed(2) : '0.00'}%</td>
-                <td className="p-3 text-right font-mono">{totalAll > 0 ? ((c.votes / totalAll) * 100).toFixed(2) : '0.00'}%</td>
-              </tr>
-            ))}
+            {[...candidates].sort((a, b) => b.votes - a.votes).map((c, i) => {
+              const elected = usingRegistered && c.votes >= electedThreshold
+              return (
+                <tr key={c.id} className={`border-b hover:bg-slate-50 ${elected ? 'bg-emerald-50/50' : ''}`}>
+                  <td className="p-3">{i + 1}º</td>
+                  <td className="p-3 font-medium">{c.name}</td>
+                  <td className="p-3 text-right font-mono">{c.votes}</td>
+                  <td className="p-3 text-right font-mono font-semibold">{pctOfBase(c.votes)}%</td>
+                  <td className="p-3 text-right font-mono text-slate-500">{pctOfValid(c.votes)}%</td>
+                  {usingRegistered && (
+                    <td className="p-3 text-center">
+                      {elected && (
+                        <span className="bg-emerald-100 text-emerald-700 text-xs font-semibold px-2 py-1 rounded-full">✅ Eleito</span>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              )
+            })}
             <tr className="border-b bg-slate-50">
               <td className="p-3">-</td>
               <td className="p-3 font-medium italic">Voto em Branco</td>
               <td className="p-3 text-right font-mono">{blank}</td>
-              <td className="p-3 text-right font-mono">-</td>
-              <td className="p-3 text-right font-mono">{totalAll > 0 ? ((blank / totalAll) * 100).toFixed(2) : '0.00'}%</td>
+              <td className="p-3 text-right font-mono">{pctOfBase(blank)}%</td>
+              <td className="p-3 text-right font-mono text-slate-500">-</td>
+              {usingRegistered && <td className="p-3"></td>}
             </tr>
           </tbody>
         </table>
