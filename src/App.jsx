@@ -293,12 +293,28 @@ export default function App() {
   }
 
   // Chamado pela CodeEntryScreen após validar (e consumir) o código com
-  // sucesso. O token já foi salvo em localStorage nesse ponto - o eleitor
-  // é sempre "novo" neste momento (nenhuma sessão concluída ainda).
-  function handleCodeValidated() {
-    setVoterStatus({ completed: [], final_receipt: null })
-    setCurrentSessionIdx(0)
-    setScreen('voting')
+  // sucesso. O token já foi salvo em localStorage nesse ponto. Como o
+  // mesmo código agora pode ser reaproveitado para RETOMAR uma votação
+  // incompleta (o código só bloqueia depois de concluir todas as
+  // sessões), buscamos o status real em vez de presumir que é sempre
+  // um eleitor novo.
+  async function handleCodeValidated() {
+    const token = getVoterToken()
+    try {
+      const { data: status, error: statusErr } = await supabase.rpc('get_voter_status', {
+        p_election_id: ELECTION_ID,
+        p_voter_token: token
+      })
+      if (statusErr) throw statusErr
+      const vs = status || { completed: [], final_receipt: null }
+      setVoterStatus(vs)
+      const nextIdx = findNextPendingIdx(election, vs.completed)
+      setCurrentSessionIdx(nextIdx === -1 ? 0 : nextIdx)
+      setScreen('voting')
+    } catch (e) {
+      setError(e.message || 'Erro ao carregar seu progresso de votação')
+      setScreen('error')
+    }
   }
 
   // Após terminar uma sessão, vai para a próxima pendente

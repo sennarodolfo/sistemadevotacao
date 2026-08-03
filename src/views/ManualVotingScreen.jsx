@@ -6,7 +6,7 @@ import { supabase, ELECTION_ID } from '../lib/supabase'
 const CODE_ERROR_MESSAGES = {
   invalid_format: 'Digite os 4 dígitos da cédula.',
   code_not_found: 'Cédula não encontrada. Verifique o código impresso.',
-  code_already_used: 'Esta cédula já foi utilizada. Cada cédula só pode ser computada uma vez.'
+  code_already_used: 'Esta cédula já concluiu a votação em todas as sessões e não pode ser usada novamente.'
 }
 
 const VOTE_ERROR_MESSAGES = {
@@ -115,10 +115,19 @@ export default function ManualVotingScreen({ election, onClose }) {
         focusInput(0)
         return
       }
+      // O código pode estar sendo retomado (já votou em algumas sessões
+      // antes de parar) - busca o status real em vez de presumir zerado.
+      const { data: status, error: statusErr } = await supabase.rpc('get_voter_status', {
+        p_election_id: ELECTION_ID,
+        p_voter_token: data.voter_token
+      })
+      if (statusErr) throw statusErr
+      const realCompleted = status?.completed || []
       setToken(data.voter_token)
       setCurrentCode(code)
-      setCompleted([])
-      setSessionIdx(findNextPendingIdx(activeSessions, []))
+      setCompleted(realCompleted)
+      const nextIdx = findNextPendingIdx(activeSessions, realCompleted)
+      setSessionIdx(nextIdx === -1 ? 0 : nextIdx)
       setDigits(['', '', '', ''])
       setPhase('voting')
     } catch (e) {
@@ -291,7 +300,7 @@ export default function ManualVotingScreen({ election, onClose }) {
           )}
 
           <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800 text-center mb-4">
-            🔒 Cada cédula tem um código próprio (diferente dos códigos do eleitor) e só pode ser usada <b>uma vez</b>.
+            🔒 Cada cédula tem um código próprio (diferente dos códigos do eleitor) e só é bloqueada <b>depois de concluir todas as sessões</b> — se parar no meio, digite o mesmo código novamente para continuar.
           </div>
 
           {ballotCount > 0 && (

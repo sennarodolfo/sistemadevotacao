@@ -875,7 +875,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
             <div>
               <h2 className="text-lg font-bold text-slate-800">Códigos de Votação</h2>
               <p className="text-sm text-slate-500 mt-1">
-                Gere códigos numéricos de 4 dígitos para autenticar os eleitores. Cada código libera o voto em todas as sessões desta urna e só pode ser usado <b>uma única vez</b> — ao ser digitado, ele é imediatamente bloqueado para qualquer outra tentativa.
+                Gere códigos numéricos de 4 dígitos para autenticar os eleitores. Cada código libera o voto em todas as sessões desta urna. Ele só fica <b>bloqueado depois de concluir todas as sessões</b> — se o eleitor parar no meio (fechar o navegador, trocar de aparelho), pode digitar o mesmo código novamente para retomar de onde parou.
               </p>
             </div>
 
@@ -957,6 +957,9 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
               <h3 className="font-semibold text-slate-700 mb-2">Gerenciar um código específico</h3>
               <p className="text-xs text-slate-500 mb-2">
                 Digite o código de 4 dígitos para <b>resetar</b> (destrava para uso novamente, sem apagar votos) ou <b>apagar</b> (remove o código e TODOS os votos feitos com ele — use quando o eleitor errou e a votação precisa ser desfeita).
+              </p>
+              <p className="text-xs text-slate-400 mb-2">
+                O código já se destrava sozinho para retomar uma votação incompleta — "resetar" só é necessário para liberar de novo um código que <b>já concluiu todas as sessões</b> (por exemplo, para permitir que outra pessoa vote com o mesmo código).
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <input
@@ -1066,7 +1069,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
             <div>
               <h2 className="text-lg font-bold text-slate-800">Cédulas Manuais</h2>
               <p className="text-sm text-slate-500 mt-1">
-                Gere cédulas de papel para votos computados pelo mesário na página <code>#votacaomanual</code>. Cada cédula tem um código numérico de 4 dígitos <b>próprio, diferente dos códigos do eleitor</b>, de uso único, e o PDF já imprime o código junto com a lista de sessões e candidatos para marcação manual.
+                Gere cédulas de papel para votos computados pelo mesário na página <code>#votacaomanual</code>. Cada cédula tem um código numérico de 4 dígitos <b>próprio, diferente dos códigos do eleitor</b>, e o PDF já imprime o código junto com a lista de sessões e candidatos para marcação manual. A cédula só fica bloqueada depois de concluir todas as sessões — se parar no meio, o mesário pode digitar o mesmo código novamente para retomar.
               </p>
             </div>
 
@@ -1399,11 +1402,12 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
               <p className="font-semibold mb-1">Como o sistema identifica o eleitor</p>
               <p>
                 O eleitor digita um <b>código numérico de 4 dígitos</b> (gerado na aba "Códigos") ao iniciar a votação.
-                O código é validado e marcado como usado uma única vez no banco de dados — depois disso, nenhum outro
-                dispositivo consegue digitar o mesmo código. O bloqueio de novas tentativas é feito pelo <b>código em si</b>,
-                não pelo dispositivo/navegador: não existe mais um "token de liberação" manual para o admin apagar. Ao final
-                da votação, a própria tela de comprovante libera o aparelho para o próximo eleitor. Não usamos fingerprint
-                (impressão digital do navegador) nem geolocalização.
+                O código libera o voto em todas as sessões, mas só fica <b>bloqueado ao concluir todas elas</b> — se o
+                eleitor parar no meio (fechar o navegador, trocar de aparelho), pode digitar o mesmo código de novo,
+                em qualquer dispositivo, para retomar exatamente de onde parou. A aba "Auditoria" tem uma "Conferência
+                de Votos" para localizar códigos que ainda não completaram todas as sessões. Ao concluir a última
+                sessão, o código é bloqueado automaticamente e a tela de comprovante libera o aparelho para o próximo
+                eleitor. Não usamos fingerprint (impressão digital do navegador) nem geolocalização.
               </p>
               <p className="mt-2">
                 A página <code>#votacaomanual</code> (mesário) tem uma <b>senha própria</b>, diferente da senha de admin — altere-a na seção "Alterar Senha da Votação Manual" na aba Geral.

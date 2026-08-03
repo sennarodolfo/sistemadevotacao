@@ -23,9 +23,10 @@
 9. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0007_senha_votacao_manual.sql` e rode (cria a senha própria da votação manual — padrão inicial `manual123`, troque depois no painel).
 10. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0008_eleitores_presentes.sql` e rode (adiciona o número de eleitores presentes por sessão, base do cálculo de percentual).
 11. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0009_conferencia_votos.sql` e rode (permite conferir quais códigos não votaram em todas as sessões).
-12. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
-13. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
-14. **Settings → API** copie:
+12. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0010_bloqueio_ao_concluir.sql` e rode (o código só bloqueia ao concluir todas as sessões, permitindo retomar uma votação incompleta).
+13. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
+14. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
+15. **Settings → API** copie:
    - **Project URL** → `VITE_SUPABASE_URL`
    - **anon public key** → `VITE_SUPABASE_ANON_KEY`
 

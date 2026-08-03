@@ -6,7 +6,7 @@ import { setVoterToken } from '../lib/api'
 const ERROR_MESSAGES = {
   invalid_format: 'Digite os 4 dígitos do código.',
   code_not_found: 'Código não encontrado. Verifique com a mesa e tente novamente.',
-  code_already_used: 'Este código já foi utilizado. Cada código só pode votar uma vez.'
+  code_already_used: 'Este código já concluiu a votação em todas as sessões e não pode ser usado novamente.'
 }
 
 export default function CodeEntryScreen({ election, onValidated, onBack }) {
@@ -120,7 +120,7 @@ export default function CodeEntryScreen({ election, onValidated, onBack }) {
         )}
 
         <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800 text-center mb-5">
-          🔒 Cada código pode ser usado <b>apenas uma vez</b>. Após validado, ele libera o voto em todas as sessões desta urna neste dispositivo.
+          🔒 O código libera o voto em todas as sessões desta urna. Ele só é bloqueado <b>depois de concluir todas as sessões</b> — se você parar no meio, pode digitá-lo novamente (inclusive em outro dispositivo) para continuar de onde parou.
         </div>
 
         <div className="flex gap-2">
