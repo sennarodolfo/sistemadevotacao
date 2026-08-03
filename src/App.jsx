@@ -9,6 +9,7 @@ import SessionDoneScreen from './views/SessionDoneScreen'
 import FinalScreen from './views/FinalScreen'
 import AdminLogin from './views/AdminLogin'
 import AdminPanel from './views/AdminPanel'
+import ManualVotingScreen from './views/ManualVotingScreen'
 
 function ConfigError({ message }) {
   return (
@@ -91,12 +92,13 @@ export default function App() {
   const tapCount = useRef(0)
   const tapTimer = useRef(null)
 
-  // Sincroniza tela com hash #admin na URL
+  // Sincroniza tela com o hash da URL (#admin ou #votacaomanual)
   useEffect(() => {
     function syncHash() {
       if (window.location.hash === '#admin') {
-        if (authOk) setScreen('admin')
-        else setScreen('adminLogin')
+        setScreen(authOk ? 'admin' : 'adminLogin')
+      } else if (window.location.hash === '#votacaomanual') {
+        setScreen(authOk ? 'manualVoting' : 'manualVotingLogin')
       }
     }
     syncHash()
@@ -178,9 +180,13 @@ export default function App() {
       } else {
         setVoterStatus({ completed: [], final_receipt: null })
       }
-      // Se a URL já tem #admin, mantém na tela admin
+      // Se a URL já tem #admin ou #votacaomanual, mantém na tela correspondente
       if (window.location.hash === '#admin') {
         setScreen(authOk ? 'admin' : 'adminLogin')
+        return
+      }
+      if (window.location.hash === '#votacaomanual') {
+        setScreen(authOk ? 'manualVoting' : 'manualVotingLogin')
         return
       }
       setScreen('welcome')
@@ -215,7 +221,7 @@ export default function App() {
     setAuthOk(true)
     sessionStorage.setItem('admin_auth', '1')
     if (password) sessionStorage.setItem('admin_pwd', password)
-    setScreen('admin')
+    setScreen(window.location.hash === '#votacaomanual' ? 'manualVoting' : 'admin')
   }
 
   function handleAdminLogout() {
@@ -223,10 +229,16 @@ export default function App() {
     sessionStorage.removeItem('admin_auth')
     sessionStorage.removeItem('admin_pwd')
     // Limpa o hash para não voltar a exigir senha por causa do hashchange
-    if (window.location.hash === '#admin') {
+    if (window.location.hash === '#admin' || window.location.hash === '#votacaomanual') {
       try { history.replaceState(null, '', window.location.pathname + window.location.search) } catch (_) {}
     }
     setScreen('welcome')
+  }
+
+  // "Concluir e Liberar Sistema" na página do mesário: encerra a sessão
+  // administrativa (mesma senha usada para entrar) e volta para a urna.
+  function handleManualVotingClose() {
+    handleAdminLogout()
   }
 
   // Inicia a votação. Se o eleitor ainda não tem um token (isto é, ainda
@@ -343,6 +355,26 @@ export default function App() {
         onLogout={handleAdminLogout}
         onDataChanged={handleAdminDataChanged}
         onGoToWelcome={() => setScreen('welcome')}
+      />
+    )
+  }
+
+  if (screen === 'manualVotingLogin') {
+    return (
+      <AdminLogin
+        title="Votação Manual"
+        subtitle="Acesso restrito ao mesário"
+        onLogin={handleAdminLogin}
+        onBack={() => { try { history.replaceState(null, '', window.location.pathname + window.location.search) } catch (_) {} setScreen('welcome') }}
+      />
+    )
+  }
+
+  if (screen === 'manualVoting') {
+    return (
+      <ManualVotingScreen
+        election={election}
+        onClose={handleManualVotingClose}
       />
     )
   }

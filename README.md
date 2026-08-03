@@ -11,6 +11,8 @@ Sistema de votação eletrônica **multi-sessão** com backend em **Supabase** (
 - ✅ Foto opcional de cada candidato (upload no cadastro, com zoom ao clicar na votação)
 - ✅ Autenticação do eleitor por código numérico de 4 dígitos (uso único, gerado pelo admin)
 - ✅ Geração em lote de códigos de votação com exportação em PDF pronto para impressão e recorte
+- ✅ Gestão individual de códigos: resetar (destravar sem apagar votos) ou apagar (remove o código e os votos feitos com ele)
+- ✅ Página de votação manual (`#votacaomanual`) para o mesário computar cédulas de papel
 - ✅ "Modo urna": bloqueia o botão Voltar do navegador e avisa antes de atualizar/fechar a aba, para o eleitor não perder o progresso da votação
 - ✅ Comprovante de votação com código único (`VT-YYYYMMDD-XXXXXX`)
 - ✅ Painel administrativo completo (CRUD de sessões, códigos, resultados, auditoria, segurança)
@@ -33,6 +35,7 @@ votacao-supabase/
 │   ├── migrations/0001_init.sql              # Schema do banco
 │   ├── migrations/0002_codigo_autenticacao.sql  # Códigos de votação + remoção do bloqueio por geo
 │   ├── migrations/0003_foto_candidatos.sql    # Foto opcional dos candidatos
+│   ├── migrations/0004_gerenciar_codigos.sql  # Resetar/apagar códigos de votação
 │   └── seed/seed.sql             # Dados iniciais
 ├── index.html
 ├── package.json
@@ -70,9 +73,10 @@ git push -u origin main
 5. Abra o arquivo `supabase/migrations/0001_init.sql` deste projeto, copie todo o conteúdo e cole no editor. Clique em **Run** (ou Ctrl+Enter).
 6. Crie **outra** query, abra o arquivo `supabase/migrations/0002_codigo_autenticacao.sql`, copie todo o conteúdo e rode também (cria os códigos de votação de 4 dígitos e remove o bloqueio por geolocalização).
 7. Crie **outra** query, abra o arquivo `supabase/migrations/0003_foto_candidatos.sql`, copie todo o conteúdo e rode também (adiciona o campo de foto do candidato).
-8. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
-9. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3.
-10. Vá em **Settings → API** e copie:
+8. Crie **outra** query, abra o arquivo `supabase/migrations/0004_gerenciar_codigos.sql`, copie todo o conteúdo e rode também (permite resetar/apagar códigos de votação).
+9. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
+10. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3.
+11. Vá em **Settings → API** e copie:
    - **Project URL** (ex: `https://abcdefgh.supabase.co`) — esse é o seu `VITE_SUPABASE_URL`
    - **anon public key** (uma string JWT longa começando com `eyJhbGc...`) — esse é o seu `VITE_SUPABASE_ANON_KEY`
 
@@ -99,7 +103,8 @@ git push -u origin main
 
 1. Acesse a URL pública da Vercel. A tela de boas-vindas deve aparecer com o nome da eleição.
 2. Para abrir o painel admin, acesse `https://sua-url.vercel.app/#admin` e entre com a senha `admin123` (altere depois no painel).
-3. Vote como eleitor em outra aba/celular para verificar que está tudo funcional.
+3. Para a votação manual do mesário, acesse `https://sua-url.vercel.app/#votacaomanual` (mesma senha de admin).
+4. Vote como eleitor em outra aba/celular para verificar que está tudo funcional.
 
 > ⚠️ **Se a página ficar em branco**, abra o DevTools (F12) → Console. O sistema agora loga o status das variáveis de ambiente automaticamente:
 > ```

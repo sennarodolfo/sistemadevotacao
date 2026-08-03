@@ -28,3 +28,15 @@ export function setVoterToken(token) {
 export function clearVoterToken() {
   try { localStorage.removeItem(TOKEN_KEY) } catch (_) { /* ignore */ }
 }
+
+// ============== VOTOS MANUAIS (mesário, #votacaomanual) ==============
+// Cada cédula de papel computada pelo mesário precisa de um voter_token
+// PRÓPRIO e único (para reaproveitar a mesma função submit_vote usada
+// pelos eleitores digitais, sem violar a regra de "um voto por token por
+// sessão"). Este token nunca é salvo em localStorage - existe só na
+// memória durante o registro daquela cédula.
+export function generateManualBallotToken() {
+  const arr = new Uint8Array(16)
+  crypto.getRandomValues(arr)
+  return 'manual-' + Array.from(arr, b => b.toString(16).padStart(2, '0')).join('')
+}

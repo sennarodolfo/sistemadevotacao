@@ -45,6 +45,8 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
   const [codeList, setCodeList] = useState([])
   const [lastBatch, setLastBatch] = useState([])
   const [generatingCodes, setGeneratingCodes] = useState(false)
+  const [codeSearch, setCodeSearch] = useState('')
+  const [codeActionBusy, setCodeActionBusy] = useState(false)
 
   useEffect(() => {
     if (election) {
@@ -190,6 +192,38 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     const available = codeList.filter(c => !c.is_used).map(c => c.code)
     if (available.length === 0) return showMessage('Não há códigos disponíveis para exportar', 'error')
     downloadCodesPdf(available, election?.name, `codigos-votacao-disponiveis-${timestampSlug()}`)
+  }
+
+  // undefined = ainda não buscou / poucos dígitos; null = 4 dígitos mas não achou; objeto = achou
+  const codeSearchMatch = codeSearch.length === 4
+    ? (codeList.find(c => c.code === codeSearch) || null)
+    : undefined
+
+  async function resetCode(code) {
+    if (!confirm(`Resetar o código ${code}? Ele voltará a ficar disponível para uso. Os votos já registrados com ele (se houver) NÃO serão apagados.`)) return
+    setCodeActionBusy(true)
+    try {
+      const data = await callAdmin('admin_reset_code', { p_code: code })
+      if (data?.error) throw new Error(data.error === 'code_not_found' ? 'Código não encontrado' : data.error)
+      showMessage(`Código ${code} resetado`)
+      setCodeSearch('')
+      await refreshCodes()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+    finally { setCodeActionBusy(false) }
+  }
+
+  async function deleteCode(code) {
+    if (!confirm(`Apagar o código ${code}? Esta ação remove o código PERMANENTEMENTE e apaga TODOS os votos e comprovantes já registrados com ele. Não pode ser desfeita.`)) return
+    setCodeActionBusy(true)
+    try {
+      const data = await callAdmin('admin_delete_code', { p_code: code })
+      if (data?.error) throw new Error(data.error === 'code_not_found' ? 'Código não encontrado' : data.error)
+      const votesMsg = data.deleted_votes > 0 ? ` (${data.deleted_votes} voto(s) removido(s))` : ''
+      showMessage(`Código ${code} apagado${votesMsg}`)
+      setCodeSearch('')
+      await refreshCodes()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+    finally { setCodeActionBusy(false) }
   }
 
   async function saveSession(form) {
@@ -540,6 +574,82 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                 <Icon name="download" className="w-4 h-4" /> Baixar PDF (todos disponíveis — {codeStats.available})
               </button>
             </div>
+
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-slate-700 mb-2">Gerenciar um código específico</h3>
+              <p className="text-xs text-slate-500 mb-2">
+                Digite o código de 4 dígitos para <b>resetar</b> (destrava para uso novamente, sem apagar votos) ou <b>apagar</b> (remove o código e TODOS os votos feitos com ele — use quando o eleitor errou e a votação precisa ser desfeita).
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={codeSearch}
+                  onChange={e => setCodeSearch(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                  placeholder="0000"
+                  className="w-24 px-3 py-2 border border-slate-300 rounded-lg text-center font-mono text-lg tracking-widest"
+                />
+                {codeSearchMatch === null && (
+                  <span className="text-sm text-red-600">Código não encontrado</span>
+                )}
+                {codeSearchMatch && (
+                  <>
+                    <span className={`text-xs font-semibold px-2 py-1 rounded-full ${codeSearchMatch.is_used ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {codeSearchMatch.is_used ? 'Utilizado' : 'Disponível'}
+                    </span>
+                    {codeSearchMatch.is_used && (
+                      <button
+                        type="button"
+                        onClick={() => resetCode(codeSearchMatch.code)}
+                        disabled={codeActionBusy}
+                        className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"
+                      >
+                        <Icon name="refresh" className="w-4 h-4" /> Resetar
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => deleteCode(codeSearchMatch.code)}
+                      disabled={codeActionBusy}
+                      className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Icon name="trash" className="w-4 h-4" /> Apagar
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {codeList.length > 0 && (
+              <div className="border-t pt-4">
+                <h3 className="font-semibold text-slate-700 mb-2">Códigos recentes</h3>
+                <div className="max-h-64 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                  {codeList.slice(0, 50).map(c => (
+                    <div key={c.code} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                      <span className="font-mono font-semibold tracking-widest">{c.code}</span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${c.is_used ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {c.is_used ? 'Utilizado' : 'Disponível'}
+                      </span>
+                      <span className="flex-1" />
+                      {c.is_used && (
+                        <button type="button" onClick={() => resetCode(c.code)} disabled={codeActionBusy}
+                          className="text-amber-600 hover:text-amber-800 p-1 disabled:opacity-50" title="Resetar">
+                          <Icon name="refresh" className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button type="button" onClick={() => deleteCode(c.code)} disabled={codeActionBusy}
+                        className="text-red-500 hover:text-red-700 p-1 disabled:opacity-50" title="Apagar">
+                        <Icon name="trash" className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {codeList.length > 50 && (
+                  <p className="text-xs text-slate-400 mt-1">Mostrando os 50 mais recentes de {codeList.length}. Use a busca acima para localizar um código específico.</p>
+                )}
+              </div>
+            )}
           </div>
         )}
 

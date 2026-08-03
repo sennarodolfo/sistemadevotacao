@@ -17,9 +17,10 @@
 3. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0001_init.sql` e rode.
 4. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0002_codigo_autenticacao.sql` e rode (adiciona os códigos de votação de 4 dígitos e remove o bloqueio por geolocalização).
 5. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0003_foto_candidatos.sql` e rode (adiciona o campo de foto do candidato).
-6. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
-7. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
-8. **Settings → API** copie:
+6. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0004_gerenciar_codigos.sql` e rode (permite resetar/apagar códigos de votação).
+7. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
+8. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
+9. **Settings → API** copie:
    - **Project URL** → `VITE_SUPABASE_URL`
    - **anon public key** → `VITE_SUPABASE_ANON_KEY`
 
@@ -33,7 +34,7 @@
    - `VITE_ELECTION_ID`
 4. Deploy.
 
-Acesse `/` para votar e `#admin` para o painel (senha padrão: `admin123`).
+Acesse `/` para votar, `#admin` para o painel (senha padrão: `admin123`) e `#votacaomanual` para a votação manual do mesário (mesma senha).
 
 ## 4. Rodar localmente
 

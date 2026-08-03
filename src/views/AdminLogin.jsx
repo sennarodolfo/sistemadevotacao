@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Icon } from '../components/Icon'
 import { supabase, ELECTION_ID } from '../lib/supabase'
 
-export default function AdminLogin({ onLogin, onBack }) {
+export default function AdminLogin({ onLogin, onBack, title = 'Painel Administrativo', subtitle = 'Acesso restrito' }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -37,8 +37,8 @@ export default function AdminLogin({ onLogin, onBack }) {
             <Icon name="lock" className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Painel Administrativo</h1>
-            <p className="text-sm text-slate-500">Acesso restrito</p>
+            <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
+            <p className="text-sm text-slate-500">{subtitle}</p>
           </div>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">

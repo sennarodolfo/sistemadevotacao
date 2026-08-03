@@ -8,7 +8,7 @@ export default function FinalScreen({ election, receipt, onReset }) {
 
   function releaseForNextVoter() {
     if (releasing) return
-    if (confirm('Concluir e liberar a urna para o próximo eleitor? Esta tela não poderá mais ser reaberta.')) {
+    if (confirm('Fechar a votação e liberar a urna para o próximo eleitor? Esta tela não poderá mais ser reaberta.')) {
       setReleasing(true)
       onReset()
     }
@@ -160,7 +160,7 @@ export default function FinalScreen({ election, receipt, onReset }) {
             disabled={releasing}
             className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-lg font-semibold disabled:opacity-50"
           >
-            {releasing ? 'Liberando...' : 'Concluir e Liberar Urna'}
+            {releasing ? 'Fechando...' : 'Fechar Votação'}
           </button>
         </div>
       </div>
