@@ -16,9 +16,10 @@
 2. Aguarde provisionamento (1-2 min).
 3. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0001_init.sql` e rode.
 4. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0002_codigo_autenticacao.sql` e rode (adiciona os códigos de votação de 4 dígitos e remove o bloqueio por geolocalização).
-5. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
-6. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
-7. **Settings → API** copie:
+5. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0003_foto_candidatos.sql` e rode (adiciona o campo de foto do candidato).
+6. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
+7. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
+8. **Settings → API** copie:
    - **Project URL** → `VITE_SUPABASE_URL`
    - **anon public key** → `VITE_SUPABASE_ANON_KEY`
 

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Icon } from '../components/Icon'
+import PhotoLightbox from '../components/PhotoLightbox'
 import { supabase, ELECTION_ID } from '../lib/supabase'
 import { getVoterToken } from '../lib/api'
 
@@ -9,6 +10,7 @@ export default function VotingScreen({ election, session, onVoted }) {
   const [error, setError] = useState('')
   const [selected, setSelected] = useState([])
   const [submitting, setSubmitting] = useState(false)
+  const [zoomCandidate, setZoomCandidate] = useState(null)
 
   // Quando muda a sessão, limpa a seleção.
   useEffect(() => {
@@ -123,6 +125,19 @@ export default function VotingScreen({ election, session, onVoted }) {
                 <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${selected.includes(c.id) ? 'border-indigo-600 bg-indigo-600' : 'border-slate-300'}`}>
                   {selected.includes(c.id) && <Icon name="check" className="w-4 h-4 text-white" />}
                 </div>
+                {c.photo_url ? (
+                  <img
+                    src={c.photo_url}
+                    alt={c.name}
+                    onClick={e => { e.stopPropagation(); setZoomCandidate(c) }}
+                    className="w-12 h-12 rounded-full object-cover flex-shrink-0 border border-slate-200 cursor-zoom-in hover:opacity-80 transition"
+                    title="Clique para ampliar"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0 text-slate-400">
+                    <Icon name="user" className="w-6 h-6" />
+                  </div>
+                )}
                 <span className="font-medium flex-1">{c.name}</span>
               </button>
             ))}
@@ -169,6 +184,12 @@ export default function VotingScreen({ election, session, onVoted }) {
           </div>
         </div>
       </div>
+
+      <PhotoLightbox
+        photoUrl={zoomCandidate?.photo_url}
+        name={zoomCandidate?.name}
+        onClose={() => setZoomCandidate(null)}
+      />
     </div>
   )
 }

@@ -74,6 +74,10 @@ function ErrorScreen({ error, onRetry }) {
   )
 }
 
+// Telas do fluxo do ELEITOR (não inclui admin/adminLogin/loading/error) onde
+// o "modo urna" (bloqueio de voltar + aviso de atualização) fica ativo.
+const KIOSK_LOCK_SCREENS = ['welcome', 'codeEntry', 'voting', 'sessionDone', 'final']
+
 export default function App() {
   const [screen, setScreen] = useState('loading')
   const [election, setElection] = useState(null)
@@ -110,6 +114,38 @@ export default function App() {
     loadElection()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ===== "Modo urna": impede que o eleitor saia da votação sem querer =====
+  // 1) Botão Voltar do navegador: como é um SPA (nunca troca de página de
+  //    verdade), reempurramos o mesmo estado no histórico sempre que o
+  //    evento popstate dispara. O eleitor simplesmente permanece na MESMA
+  //    tela em que estava.
+  // 2) Atualizar (F5) ou fechar a aba: navegadores não permitem que uma
+  //    página bloqueie isso de forma programática (por segurança do
+  //    usuário) - o máximo possível é acionar o diálogo nativo de
+  //    confirmação "Sair do site?" via beforeunload, que é o que fazemos.
+  // Fica ativo só nas telas do eleitor, nunca durante a administração.
+  useEffect(() => {
+    if (!KIOSK_LOCK_SCREENS.includes(screen)) return
+
+    function trapBack() {
+      window.history.pushState(null, '', window.location.href)
+    }
+    window.history.pushState(null, '', window.location.href)
+    window.addEventListener('popstate', trapBack)
+
+    function warnBeforeUnload(e) {
+      e.preventDefault()
+      e.returnValue = ''
+      return ''
+    }
+    window.addEventListener('beforeunload', warnBeforeUnload)
+
+    return () => {
+      window.removeEventListener('popstate', trapBack)
+      window.removeEventListener('beforeunload', warnBeforeUnload)
+    }
+  }, [screen])
 
   async function loadElection() {
     try {

@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Icon } from '../components/Icon'
+import PhotoLightbox from '../components/PhotoLightbox'
+import { fileToResizedDataUrl } from '../lib/imageResize'
 import { supabase, ELECTION_ID } from '../lib/supabase'
 import { downloadCodesPdf } from '../lib/codesPdf'
 import ResultsView from './ResultsView'
@@ -192,7 +194,9 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
 
   async function saveSession(form) {
     try {
-      const candidates = form.candidates.split('\n').map(s => s.trim()).filter(s => s)
+      const candidates = (form.candidates || [])
+        .map(c => ({ name: (c.name || '').trim(), photo_url: c.photo_url || null }))
+        .filter(c => c.name)
       if (form.id) {
         await callAdmin('admin_update_session', {
           p_session_id: form.id,
@@ -415,7 +419,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
           <div className="bg-white card-shadow rounded-2xl p-6 fade-in">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-slate-800">Sessões de Votação</h2>
-              <button type="button" onClick={() => { setEditingSession({ title: '', votes_required: 1, candidates: '', is_active: true }); setShowSessionModal(true) }}
+              <button type="button" onClick={() => { setEditingSession({ title: '', votes_required: 1, candidates: [], is_active: true }); setShowSessionModal(true) }}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
                 <Icon name="plus" className="w-4 h-4" /> Nova Sessão
               </button>
@@ -433,7 +437,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                   <button type="button" onClick={() => resetSession(s)} className="text-amber-600 hover:bg-amber-50 p-2 rounded" title="Reiniciar sessão">
                     <Icon name="refresh" className="w-4 h-4" />
                   </button>
-                  <button type="button" onClick={() => { setEditingSession({ ...s, candidates: (s.candidates || []).map(c => c.name).join('\n') }); setShowSessionModal(true) }}
+                  <button type="button" onClick={() => { setEditingSession({ ...s, candidates: (s.candidates || []).map(c => ({ name: c.name, photo_url: c.photo_url || null })) }); setShowSessionModal(true) }}
                     className="text-blue-600 hover:bg-blue-50 p-2 rounded">
                     <Icon name="edit" className="w-4 h-4" />
                   </button>
@@ -593,32 +597,11 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
               <p>
                 O eleitor digita um <b>código numérico de 4 dígitos</b> (gerado na aba "Códigos") ao iniciar a votação.
                 O código é validado e marcado como usado uma única vez no banco de dados — depois disso, nenhum outro
-                dispositivo consegue digitar o mesmo código. A validação gera um token interno salvo no <code>localStorage</code> do
-                navegador, que libera todas as sessões desta urna para aquele eleitor. Não usamos fingerprint (impressão digital do navegador) nem geolocalização.
+                dispositivo consegue digitar o mesmo código. O bloqueio de novas tentativas é feito pelo <b>código em si</b>,
+                não pelo dispositivo/navegador: não existe mais um "token de liberação" manual para o admin apagar. Ao final
+                da votação, a própria tela de comprovante libera o aparelho para o próximo eleitor. Não usamos fingerprint
+                (impressão digital do navegador) nem geolocalização.
               </p>
-            </div>
-
-            <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg">
-              <h3 className="font-semibold text-slate-700 mb-2">Liberar este dispositivo</h3>
-              <p className="text-sm text-slate-600 mb-3">
-                Esta opção <b>apaga o token salvo</b> no navegador atual. Use quando o mesmo aparelho for reutilizado por outro eleitor — ele precisará digitar um <b>novo</b> código de votação. Isso não reativa um código já utilizado.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm('Reiniciar sessão de votação deste dispositivo? O token local será apagado. Os votos já computados no banco permanecem.')) {
-                    try {
-                      localStorage.removeItem('voter_token')
-                      showMessage('Sessão de votação reiniciada. Recarregue a página para gerar um novo token.')
-                    } catch (e) {
-                      showMessage('Erro: ' + e.message, 'error')
-                    }
-                  }
-                }}
-                className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
-              >
-                <Icon name="refresh" className="w-4 h-4" /> Reiniciar Sessão de Votação (dispositivos)
-              </button>
             </div>
 
             <div className="bg-red-50 border border-red-200 p-4 rounded-lg">
@@ -638,8 +621,106 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
   )
 }
 
+function CandidateRow({ candidate, index, onChange, onRemove, onZoom }) {
+  const fileInputRef = useRef(null)
+  const [uploading, setUploading] = useState(false)
+  const [photoError, setPhotoError] = useState('')
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // permite selecionar o mesmo arquivo de novo depois
+    if (!file) return
+    setPhotoError('')
+    setUploading(true)
+    try {
+      const dataUrl = await fileToResizedDataUrl(file)
+      onChange({ ...candidate, photo_url: dataUrl })
+    } catch (err) {
+      setPhotoError(err.message || 'Erro ao processar imagem')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg p-2">
+      <button
+        type="button"
+        onClick={() => candidate.photo_url ? onZoom(candidate) : fileInputRef.current?.click()}
+        className="relative w-12 h-12 rounded-full flex-shrink-0 overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-400 hover:opacity-80 transition"
+        title={candidate.photo_url ? 'Clique para ampliar' : 'Adicionar foto'}
+      >
+        {uploading ? (
+          <div className="w-4 h-4 border-2 border-slate-300 border-t-indigo-600 rounded-full animate-spin" />
+        ) : candidate.photo_url ? (
+          <img src={candidate.photo_url} alt={candidate.name} className="w-full h-full object-cover" />
+        ) : (
+          <Icon name="user" className="w-6 h-6" />
+        )}
+      </button>
+      <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+
+      <div className="flex-1 min-w-0">
+        <input
+          type="text"
+          value={candidate.name}
+          onChange={e => onChange({ ...candidate, name: e.target.value })}
+          placeholder={`Candidato ${index + 1}`}
+          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+        />
+        {photoError && <p className="text-xs text-red-600 mt-1">{photoError}</p>}
+      </div>
+
+      {candidate.photo_url && (
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          title="Trocar foto"
+          className="text-slate-400 hover:text-indigo-600 p-1"
+        >
+          <Icon name="edit" className="w-4 h-4" />
+        </button>
+      )}
+      {candidate.photo_url && (
+        <button
+          type="button"
+          onClick={() => onChange({ ...candidate, photo_url: null })}
+          title="Remover foto"
+          className="text-slate-400 hover:text-amber-600 p-1"
+        >
+          <Icon name="x" className="w-4 h-4" />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        title="Remover candidato"
+        className="text-slate-400 hover:text-red-600 p-1"
+      >
+        <Icon name="trash" className="w-4 h-4" />
+      </button>
+    </div>
+  )
+}
+
 function SessionModal({ session, onSave, onClose }) {
   const [form, setForm] = useState(session)
+  const [zoomCandidate, setZoomCandidate] = useState(null)
+
+  function updateCandidate(idx, next) {
+    const list = [...form.candidates]
+    list[idx] = next
+    setForm({ ...form, candidates: list })
+  }
+
+  function removeCandidate(idx) {
+    setForm({ ...form, candidates: form.candidates.filter((_, i) => i !== idx) })
+  }
+
+  function addCandidate() {
+    if (form.candidates.length >= 10) return
+    setForm({ ...form, candidates: [...form.candidates, { name: '', photo_url: null }] })
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
@@ -662,11 +743,31 @@ function SessionModal({ session, onSave, onClose }) {
             <p className="text-xs text-slate-500 mt-1">O eleitor pode misturar candidatos e brancos livremente, totalizando este número.</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Candidatos (um por linha)</label>
-            <textarea value={form.candidates} onChange={e => setForm({ ...form, candidates: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-sm" rows="6"
-              placeholder={"João da Silva\nPedro Souza\nCarlos Mendes"} />
-            <p className="text-xs text-slate-500 mt-1">Até 10 candidatos por sessão.</p>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium text-slate-700">Candidatos</label>
+              <span className="text-xs text-slate-400">{form.candidates.length}/10</span>
+            </div>
+            <div className="space-y-2">
+              {form.candidates.map((c, idx) => (
+                <CandidateRow
+                  key={idx}
+                  candidate={c}
+                  index={idx}
+                  onChange={next => updateCandidate(idx, next)}
+                  onRemove={() => removeCandidate(idx)}
+                  onZoom={setZoomCandidate}
+                />
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={addCandidate}
+              disabled={form.candidates.length >= 10}
+              className="mt-2 w-full border-2 border-dashed border-slate-300 hover:border-indigo-400 text-slate-500 hover:text-indigo-600 rounded-lg py-2 text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <Icon name="plus" className="w-4 h-4" /> Adicionar candidato
+            </button>
+            <p className="text-xs text-slate-500 mt-1">A foto é opcional. Clique na foto para ampliar; até 10 candidatos por sessão.</p>
           </div>
           {form.id && (
             <label className="flex items-center gap-2">
@@ -680,6 +781,12 @@ function SessionModal({ session, onSave, onClose }) {
           <button type="button" onClick={() => onSave(form)} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg">Salvar</button>
         </div>
       </div>
+
+      <PhotoLightbox
+        photoUrl={zoomCandidate?.photo_url}
+        name={zoomCandidate?.name}
+        onClose={() => setZoomCandidate(null)}
+      />
     </div>
   )
 }

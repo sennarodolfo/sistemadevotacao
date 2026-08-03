@@ -4,6 +4,15 @@ import jsPDF from 'jspdf'
 
 export default function FinalScreen({ election, receipt, onReset }) {
   const [copied, setCopied] = useState(false)
+  const [releasing, setReleasing] = useState(false)
+
+  function releaseForNextVoter() {
+    if (releasing) return
+    if (confirm('Concluir e liberar a urna para o próximo eleitor? Esta tela não poderá mais ser reaberta.')) {
+      setReleasing(true)
+      onReset()
+    }
+  }
 
   function copyCode() {
     navigator.clipboard.writeText(receipt.receipt_code).then(() => {
@@ -142,6 +151,17 @@ export default function FinalScreen({ election, receipt, onReset }) {
               </p>
             </div>
           ))}
+        </div>
+
+        <div className="mt-5 pt-4 border-t border-slate-200">
+          <p className="text-xs text-slate-400 mb-2">Guarde ou anote seu código antes de continuar.</p>
+          <button
+            onClick={releaseForNextVoter}
+            disabled={releasing}
+            className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-lg font-semibold disabled:opacity-50"
+          >
+            {releasing ? 'Liberando...' : 'Concluir e Liberar Urna'}
+          </button>
         </div>
       </div>
     </div>

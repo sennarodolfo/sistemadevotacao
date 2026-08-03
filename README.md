@@ -8,8 +8,10 @@ Sistema de votação eletrônica **multi-sessão** com backend em **Supabase** (
 ## ✨ Funcionalidades
 
 - ✅ Múltiplas sessões de votação em uma mesma eleição (ex: Presbíteros, Diáconos, etc.)
+- ✅ Foto opcional de cada candidato (upload no cadastro, com zoom ao clicar na votação)
 - ✅ Autenticação do eleitor por código numérico de 4 dígitos (uso único, gerado pelo admin)
 - ✅ Geração em lote de códigos de votação com exportação em PDF pronto para impressão e recorte
+- ✅ "Modo urna": bloqueia o botão Voltar do navegador e avisa antes de atualizar/fechar a aba, para o eleitor não perder o progresso da votação
 - ✅ Comprovante de votação com código único (`VT-YYYYMMDD-XXXXXX`)
 - ✅ Painel administrativo completo (CRUD de sessões, códigos, resultados, auditoria, segurança)
 - ✅ Resultados com gráficos de barras e pizza + exportação Excel e PDF
@@ -30,6 +32,7 @@ votacao-supabase/
 ├── supabase/
 │   ├── migrations/0001_init.sql              # Schema do banco
 │   ├── migrations/0002_codigo_autenticacao.sql  # Códigos de votação + remoção do bloqueio por geo
+│   ├── migrations/0003_foto_candidatos.sql    # Foto opcional dos candidatos
 │   └── seed/seed.sql             # Dados iniciais
 ├── index.html
 ├── package.json
@@ -66,9 +69,10 @@ git push -u origin main
 4. No menu lateral, vá em **SQL Editor** e clique em **"New query"**.
 5. Abra o arquivo `supabase/migrations/0001_init.sql` deste projeto, copie todo o conteúdo e cole no editor. Clique em **Run** (ou Ctrl+Enter).
 6. Crie **outra** query, abra o arquivo `supabase/migrations/0002_codigo_autenticacao.sql`, copie todo o conteúdo e rode também (cria os códigos de votação de 4 dígitos e remove o bloqueio por geolocalização).
-7. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
-8. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3.
-9. Vá em **Settings → API** e copie:
+7. Crie **outra** query, abra o arquivo `supabase/migrations/0003_foto_candidatos.sql`, copie todo o conteúdo e rode também (adiciona o campo de foto do candidato).
+8. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
+9. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3.
+10. Vá em **Settings → API** e copie:
    - **Project URL** (ex: `https://abcdefgh.supabase.co`) — esse é o seu `VITE_SUPABASE_URL`
    - **anon public key** (uma string JWT longa começando com `eyJhbGc...`) — esse é o seu `VITE_SUPABASE_ANON_KEY`
 
