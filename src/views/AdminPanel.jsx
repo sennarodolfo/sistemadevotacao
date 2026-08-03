@@ -4,6 +4,7 @@ import PhotoLightbox from '../components/PhotoLightbox'
 import { fileToResizedDataUrl } from '../lib/imageResize'
 import { supabase, ELECTION_ID } from '../lib/supabase'
 import { downloadCodesPdf } from '../lib/codesPdf'
+import { downloadManualBallotsPdf } from '../lib/manualBallotPdf'
 import ResultsView from './ResultsView'
 
 const CODE_ERROR_MESSAGES = {
@@ -13,6 +14,21 @@ const CODE_ERROR_MESSAGES = {
 
 function timestampSlug() {
   return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+}
+
+// Identifica a origem de um voter_token (eleitor via código próprio ou
+// mesário via cédula manual) e extrai o código de 4 dígitos, para exibir
+// na aba Auditoria. Formatos: 'code-<election_id>-XXXX' (eleitor) e
+// 'mcode-<election_id>-XXXX' (cédula manual).
+function describeVoterOrigin(token) {
+  if (!token) return { label: 'Desconhecida', code: '—', badgeClass: 'bg-slate-100 text-slate-600' }
+  if (token.startsWith('mcode-')) {
+    return { label: 'Mesário (manual)', code: token.split('-').pop(), badgeClass: 'bg-purple-100 text-purple-700' }
+  }
+  if (token.startsWith('code-')) {
+    return { label: 'Eleitor', code: token.split('-').pop(), badgeClass: 'bg-indigo-100 text-indigo-700' }
+  }
+  return { label: 'Outro', code: '—', badgeClass: 'bg-slate-100 text-slate-600' }
 }
 
 function adminPassword() {
@@ -47,6 +63,15 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
   const [generatingCodes, setGeneratingCodes] = useState(false)
   const [codeSearch, setCodeSearch] = useState('')
   const [codeActionBusy, setCodeActionBusy] = useState(false)
+
+  // ===== Cédulas manuais (mesário) =====
+  const [manualCodeQuantity, setManualCodeQuantity] = useState(50)
+  const [manualCodeStats, setManualCodeStats] = useState({ total: 0, used: 0, available: 0 })
+  const [manualCodeList, setManualCodeList] = useState([])
+  const [manualLastBatch, setManualLastBatch] = useState([])
+  const [generatingManualCodes, setGeneratingManualCodes] = useState(false)
+  const [manualCodeSearch, setManualCodeSearch] = useState('')
+  const [manualCodeActionBusy, setManualCodeActionBusy] = useState(false)
 
   useEffect(() => {
     if (election) {
@@ -226,6 +251,148 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     finally { setCodeActionBusy(false) }
   }
 
+  async function resetAllCodes() {
+    if (codeStats.used === 0) return showMessage('Não há códigos utilizados para resetar', 'error')
+    if (!confirm(`Resetar TODOS os ${codeStats.used} código(s) utilizados? Todos voltarão a ficar disponíveis para uso. Os votos já registrados NÃO serão apagados.`)) return
+    setCodeActionBusy(true)
+    try {
+      const data = await callAdmin('admin_reset_all_codes', {})
+      if (data?.error) throw new Error(data.error)
+      showMessage(`${data.reset_count} código(s) resetado(s)`)
+      setCodeSearch('')
+      await refreshCodes()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+    finally { setCodeActionBusy(false) }
+  }
+
+  async function deleteAllCodes() {
+    if (codeStats.total === 0) return showMessage('Não há códigos gerados para apagar', 'error')
+    if (!confirm(`Apagar TODOS os ${codeStats.total} código(s) desta urna? Esta ação remove TODOS os códigos PERMANENTEMENTE e apaga TODOS os votos e comprovantes registrados com eles, de qualquer sessão. Não pode ser desfeita.`)) return
+    if (!confirm('Tem certeza mesmo? Esta é a última confirmação antes de apagar tudo.')) return
+    setCodeActionBusy(true)
+    try {
+      const data = await callAdmin('admin_delete_all_codes', {})
+      if (data?.error) throw new Error(data.error)
+      showMessage(`${data.deleted_codes} código(s) apagado(s), ${data.deleted_votes} voto(s) removido(s)`)
+      setCodeSearch('')
+      setLastBatch([])
+      await refreshCodes()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+    finally { setCodeActionBusy(false) }
+  }
+
+  // ===== Cédulas manuais (mesário) =====
+
+  async function openManualCodesTab() {
+    setTab('manualCodes')
+    await refreshManualCodes()
+  }
+
+  async function refreshManualCodes() {
+    try {
+      const data = await callAdmin('admin_list_manual_codes', {})
+      if (data?.error) throw new Error(data.error)
+      setManualCodeList(data.codes || [])
+      setManualCodeStats({
+        total: data.total || 0,
+        used: data.used || 0,
+        available: data.available || 0
+      })
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+  }
+
+  async function generateManualCodes() {
+    const qty = parseInt(manualCodeQuantity)
+    if (!qty || qty < 1) return showMessage('Informe uma quantidade válida', 'error')
+    if (qty > 5000) return showMessage('Máximo de 5000 cédulas por geração', 'error')
+    setGeneratingManualCodes(true)
+    try {
+      const data = await callAdmin('admin_generate_manual_codes', { p_quantity: qty })
+      if (data?.error) throw new Error(CODE_ERROR_MESSAGES[data.error] || data.error)
+      setManualLastBatch(data.codes || [])
+      const generated = data.generated || 0
+      if (generated < qty) {
+        showMessage(`Apenas ${generated} de ${qty} cédula(s) puderam ser geradas (limite de combinações de 4 dígitos disponíveis nesta urna).`, 'error')
+      } else {
+        showMessage(`${generated} cédula(s) gerada(s) com sucesso`)
+      }
+      await refreshManualCodes()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+    finally { setGeneratingManualCodes(false) }
+  }
+
+  function downloadManualLastBatchPdf() {
+    if (manualLastBatch.length === 0) return showMessage('Nenhuma cédula recém-gerada para exportar', 'error')
+    downloadManualBallotsPdf(manualLastBatch, election, `cedulas-manuais-novas-${timestampSlug()}`)
+  }
+
+  function downloadManualAvailablePdf() {
+    const available = manualCodeList.filter(c => !c.is_used).map(c => c.code)
+    if (available.length === 0) return showMessage('Não há cédulas disponíveis para exportar', 'error')
+    downloadManualBallotsPdf(available, election, `cedulas-manuais-disponiveis-${timestampSlug()}`)
+  }
+
+  const manualCodeSearchMatch = manualCodeSearch.length === 4
+    ? (manualCodeList.find(c => c.code === manualCodeSearch) || null)
+    : undefined
+
+  async function resetManualCode(code) {
+    if (!confirm(`Resetar a cédula ${code}? Ela voltará a ficar disponível para uso. Os votos já registrados com ela (se houver) NÃO serão apagados.`)) return
+    setManualCodeActionBusy(true)
+    try {
+      const data = await callAdmin('admin_reset_manual_code', { p_code: code })
+      if (data?.error) throw new Error(data.error === 'code_not_found' ? 'Cédula não encontrada' : data.error)
+      showMessage(`Cédula ${code} resetada`)
+      setManualCodeSearch('')
+      await refreshManualCodes()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+    finally { setManualCodeActionBusy(false) }
+  }
+
+  async function deleteManualCode(code) {
+    if (!confirm(`Apagar a cédula ${code}? Esta ação remove a cédula PERMANENTEMENTE e apaga TODOS os votos e comprovantes já registrados com ela. Não pode ser desfeita.`)) return
+    setManualCodeActionBusy(true)
+    try {
+      const data = await callAdmin('admin_delete_manual_code', { p_code: code })
+      if (data?.error) throw new Error(data.error === 'code_not_found' ? 'Cédula não encontrada' : data.error)
+      const votesMsg = data.deleted_votes > 0 ? ` (${data.deleted_votes} voto(s) removido(s))` : ''
+      showMessage(`Cédula ${code} apagada${votesMsg}`)
+      setManualCodeSearch('')
+      await refreshManualCodes()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+    finally { setManualCodeActionBusy(false) }
+  }
+
+  async function resetAllManualCodes() {
+    if (manualCodeStats.used === 0) return showMessage('Não há cédulas utilizadas para resetar', 'error')
+    if (!confirm(`Resetar TODAS as ${manualCodeStats.used} cédula(s) utilizadas? Todas voltarão a ficar disponíveis para uso. Os votos já registrados NÃO serão apagados.`)) return
+    setManualCodeActionBusy(true)
+    try {
+      const data = await callAdmin('admin_reset_all_manual_codes', {})
+      if (data?.error) throw new Error(data.error)
+      showMessage(`${data.reset_count} cédula(s) resetada(s)`)
+      setManualCodeSearch('')
+      await refreshManualCodes()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+    finally { setManualCodeActionBusy(false) }
+  }
+
+  async function deleteAllManualCodes() {
+    if (manualCodeStats.total === 0) return showMessage('Não há cédulas geradas para apagar', 'error')
+    if (!confirm(`Apagar TODAS as ${manualCodeStats.total} cédula(s) desta urna? Esta ação remove TODAS as cédulas PERMANENTEMENTE e apaga TODOS os votos e comprovantes registrados com elas, de qualquer sessão. Não pode ser desfeita.`)) return
+    if (!confirm('Tem certeza mesmo? Esta é a última confirmação antes de apagar tudo.')) return
+    setManualCodeActionBusy(true)
+    try {
+      const data = await callAdmin('admin_delete_all_manual_codes', {})
+      if (data?.error) throw new Error(data.error)
+      showMessage(`${data.deleted_codes} cédula(s) apagada(s), ${data.deleted_votes} voto(s) removido(s)`)
+      setManualCodeSearch('')
+      setManualLastBatch([])
+      await refreshManualCodes()
+    } catch (e) { showMessage('Erro: ' + e.message, 'error') }
+    finally { setManualCodeActionBusy(false) }
+  }
+
   async function saveSession(form) {
     try {
       const candidates = (form.candidates || [])
@@ -334,6 +501,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     { id: 'general', label: 'Geral', icon: 'settings' },
     { id: 'sessions', label: 'Sessões', icon: 'vote' },
     { id: 'codes', label: 'Códigos', icon: 'lock' },
+    { id: 'manualCodes', label: 'Cédulas Manuais', icon: 'edit' },
     { id: 'results', label: 'Resultados', icon: 'chart' },
     { id: 'audit', label: 'Auditoria', icon: 'copy' },
     { id: 'security', label: 'Segurança', icon: 'shield' }
@@ -372,6 +540,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
               onClick={() => {
                 if (t.id === 'sessions') openSessionsTab()
                 else if (t.id === 'codes') openCodesTab()
+                else if (t.id === 'manualCodes') openManualCodesTab()
                 else if (t.id === 'results') openResultsTab()
                 else if (t.id === 'audit') openAuditTab()
                 else setTab(t.id)
@@ -650,6 +819,227 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                 )}
               </div>
             )}
+
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-red-600 mb-2">Ações em lote (todos os códigos)</h3>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
+                <p className="text-sm text-amber-800 mb-2">
+                  <b>Resetar todos os utilizados</b> destrava de volta todos os códigos marcados como usados, sem apagar nenhum voto.
+                </p>
+                <button
+                  type="button"
+                  onClick={resetAllCodes}
+                  disabled={codeActionBusy || codeStats.used === 0}
+                  className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Icon name="refresh" className="w-4 h-4" /> Resetar todos os utilizados ({codeStats.used})
+                </button>
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-700 mb-2">
+                  <b>Apagar todos os códigos</b> remove TODOS os códigos desta urna permanentemente e apaga TODOS os votos e comprovantes feitos com eles. Use apenas para reiniciar a eleição do zero. Esta ação é irreversível.
+                </p>
+                <button
+                  type="button"
+                  onClick={deleteAllCodes}
+                  disabled={codeActionBusy || codeStats.total === 0}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Icon name="trash" className="w-4 h-4" /> Apagar todos os códigos ({codeStats.total})
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === 'manualCodes' && (
+          <div className="bg-white card-shadow rounded-2xl p-6 fade-in space-y-5">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Cédulas Manuais</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Gere cédulas de papel para votos computados pelo mesário na página <code>#votacaomanual</code>. Cada cédula tem um código numérico de 4 dígitos <b>próprio, diferente dos códigos do eleitor</b>, de uso único, e o PDF já imprime o código junto com a lista de sessões e candidatos para marcação manual.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-indigo-700">{manualCodeStats.total}</p>
+                <p className="text-xs text-indigo-600 font-medium">Geradas</p>
+              </div>
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-emerald-700">{manualCodeStats.used}</p>
+                <p className="text-xs text-emerald-600 font-medium">Utilizadas</p>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-amber-700">{manualCodeStats.available}</p>
+                <p className="text-xs text-amber-600 font-medium">Disponíveis</p>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-slate-700 mb-2">Gerar novas cédulas</h3>
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Quantidade</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="5000"
+                    value={manualCodeQuantity}
+                    onChange={e => setManualCodeQuantity(e.target.value)}
+                    className="w-32 px-3 py-2 border border-slate-300 rounded-lg"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={generateManualCodes}
+                  disabled={generatingManualCodes}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-semibold disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Icon name="plus" className="w-4 h-4" />
+                  {generatingManualCodes ? 'Gerando...' : 'Gerar Cédulas'}
+                </button>
+              </div>
+              <p className="text-xs text-slate-400 mt-2">
+                As cédulas compartilham o espaço de 4 dígitos com os códigos do eleitor, mas nunca coincidem: cada número só pertence a um dos dois grupos por vez.
+              </p>
+            </div>
+
+            {manualLastBatch.length > 0 && (
+              <div className="border-t pt-4">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-sm text-emerald-800"><b>{manualLastBatch.length}</b> cédula(s) gerada(s) na última geração.</p>
+                  <button
+                    type="button"
+                    onClick={downloadManualLastBatchPdf}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+                  >
+                    <Icon name="download" className="w-4 h-4" /> Baixar PDF (recém-geradas)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-slate-700 mb-2">Reimprimir cédulas disponíveis</h3>
+              <p className="text-xs text-slate-500 mb-2">
+                Gera um único PDF com todas as cédulas ainda não utilizadas — cada uma com o código e a lista completa de sessões/candidatos para marcação.
+              </p>
+              <button
+                type="button"
+                onClick={downloadManualAvailablePdf}
+                disabled={manualCodeStats.available === 0}
+                className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                <Icon name="download" className="w-4 h-4" /> Baixar PDF (todas disponíveis — {manualCodeStats.available})
+              </button>
+            </div>
+
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-slate-700 mb-2">Gerenciar uma cédula específica</h3>
+              <p className="text-xs text-slate-500 mb-2">
+                Digite o código de 4 dígitos para <b>resetar</b> (destrava para uso novamente, sem apagar votos) ou <b>apagar</b> (remove a cédula e TODOS os votos feitos com ela).
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={manualCodeSearch}
+                  onChange={e => setManualCodeSearch(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                  placeholder="0000"
+                  className="w-24 px-3 py-2 border border-slate-300 rounded-lg text-center font-mono text-lg tracking-widest"
+                />
+                {manualCodeSearchMatch === null && (
+                  <span className="text-sm text-red-600">Cédula não encontrada</span>
+                )}
+                {manualCodeSearchMatch && (
+                  <>
+                    <span className={`text-xs font-semibold px-2 py-1 rounded-full ${manualCodeSearchMatch.is_used ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {manualCodeSearchMatch.is_used ? 'Utilizada' : 'Disponível'}
+                    </span>
+                    {manualCodeSearchMatch.is_used && (
+                      <button
+                        type="button"
+                        onClick={() => resetManualCode(manualCodeSearchMatch.code)}
+                        disabled={manualCodeActionBusy}
+                        className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"
+                      >
+                        <Icon name="refresh" className="w-4 h-4" /> Resetar
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => deleteManualCode(manualCodeSearchMatch.code)}
+                      disabled={manualCodeActionBusy}
+                      className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Icon name="trash" className="w-4 h-4" /> Apagar
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {manualCodeList.length > 0 && (
+              <div className="border-t pt-4">
+                <h3 className="font-semibold text-slate-700 mb-2">Cédulas recentes</h3>
+                <div className="max-h-64 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                  {manualCodeList.slice(0, 50).map(c => (
+                    <div key={c.code} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                      <span className="font-mono font-semibold tracking-widest">{c.code}</span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${c.is_used ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {c.is_used ? 'Utilizada' : 'Disponível'}
+                      </span>
+                      <span className="flex-1" />
+                      {c.is_used && (
+                        <button type="button" onClick={() => resetManualCode(c.code)} disabled={manualCodeActionBusy}
+                          className="text-amber-600 hover:text-amber-800 p-1 disabled:opacity-50" title="Resetar">
+                          <Icon name="refresh" className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button type="button" onClick={() => deleteManualCode(c.code)} disabled={manualCodeActionBusy}
+                        className="text-red-500 hover:text-red-700 p-1 disabled:opacity-50" title="Apagar">
+                        <Icon name="trash" className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {manualCodeList.length > 50 && (
+                  <p className="text-xs text-slate-400 mt-1">Mostrando as 50 mais recentes de {manualCodeList.length}. Use a busca acima para localizar uma cédula específica.</p>
+                )}
+              </div>
+            )}
+
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-red-600 mb-2">Ações em lote (todas as cédulas)</h3>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
+                <p className="text-sm text-amber-800 mb-2">
+                  <b>Resetar todas as utilizadas</b> destrava de volta todas as cédulas marcadas como usadas, sem apagar nenhum voto.
+                </p>
+                <button
+                  type="button"
+                  onClick={resetAllManualCodes}
+                  disabled={manualCodeActionBusy || manualCodeStats.used === 0}
+                  className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Icon name="refresh" className="w-4 h-4" /> Resetar todas as utilizadas ({manualCodeStats.used})
+                </button>
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-700 mb-2">
+                  <b>Apagar todas as cédulas</b> remove TODAS as cédulas desta urna permanentemente e apaga TODOS os votos e comprovantes feitos com elas. Ação irreversível.
+                </p>
+                <button
+                  type="button"
+                  onClick={deleteAllManualCodes}
+                  disabled={manualCodeActionBusy || manualCodeStats.total === 0}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Icon name="trash" className="w-4 h-4" /> Apagar todas as cédulas ({manualCodeStats.total})
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -669,7 +1059,9 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-100 text-left">
-                    <th className="p-3 font-semibold">Código</th>
+                    <th className="p-3 font-semibold">Origem</th>
+                    <th className="p-3 font-semibold">Código de Acesso</th>
+                    <th className="p-3 font-semibold">Comprovante</th>
                     <th className="p-3 font-semibold">Data/Hora</th>
                     <th className="p-3 font-semibold">Sessões Votadas</th>
                     <th className="p-3 font-semibold">Candidatos Votados</th>
@@ -677,12 +1069,19 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                 </thead>
                 <tbody>
                   {receipts.length === 0 && (
-                    <tr><td colSpan="4" className="p-8 text-center text-slate-400">Nenhum comprovante emitido</td></tr>
+                    <tr><td colSpan="6" className="p-8 text-center text-slate-400">Nenhum comprovante emitido</td></tr>
                   )}
                   {receipts.map(r => {
                     const completions = r.session_completions || []
+                    const origin = describeVoterOrigin(r.voter_token)
                     return (
                       <tr key={r.receipt_code} className="border-b hover:bg-slate-50">
+                        <td className="p-3">
+                          <span className={`text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${origin.badgeClass}`}>
+                            {origin.label}
+                          </span>
+                        </td>
+                        <td className="p-3 font-mono font-semibold tracking-widest text-slate-700">{origin.code}</td>
                         <td className="p-3 font-mono text-indigo-700">{r.receipt_code}</td>
                         <td className="p-3 text-xs">{new Date(r.created_at).toLocaleString('pt-BR')}</td>
                         <td className="p-3 text-slate-700">{completions.map(c => c.session_title).join(', ')}</td>
