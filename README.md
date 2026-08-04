@@ -55,6 +55,7 @@ votacao-supabase/
 │   ├── migrations/0014_corrige_deploy_import.sql  # Corrige implantação da função de restauração
 │   ├── migrations/0015_tamanho_codigo_configuravel.sql  # Tamanho do código configurável (4-8 dígitos)
 │   ├── migrations/0016_contas_usuario.sql     # Contas de usuário e eleições próprias (multiusuário)
+│   ├── migrations/0017_corrige_bug_votos_e_membros_presentes.sql  # Corrige perda de votos ao editar sessão + membros presentes por eleição
 │   └── seed/seed.sql             # Dados iniciais
 ├── index.html
 ├── package.json
@@ -105,9 +106,10 @@ git push -u origin main
 18. Crie **outra** query, abra o arquivo `supabase/migrations/0014_corrige_deploy_import.sql`, copie todo o conteúdo e rode também (corrige um problema de implantação que podia deixar a restauração desatualizada — rode mesmo se já rodou a 0013).
 19. Crie **outra** query, abra o arquivo `supabase/migrations/0015_tamanho_codigo_configuravel.sql`, copie todo o conteúdo e rode também (permite ao admin escolher de 4 a 8 dígitos para os códigos).
 20. Crie **outra** query, abra o arquivo `supabase/migrations/0016_contas_usuario.sql`, copie todo o conteúdo e rode também (habilita o modo multiusuário — veja a seção "Modo multiusuário" abaixo).
-21. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
-22. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3 **só se for usar o modo clássico de uma eleição só** (veja abaixo).
-23. Vá em **Settings → API** e copie:
+21. Crie **outra** query, abra o arquivo `supabase/migrations/0017_corrige_bug_votos_e_membros_presentes.sql`, copie todo o conteúdo e rode também (corrige um bug importante: editar uma sessão zerava os votos já registrados; também move "membros presentes" para a aba Geral, valendo para todas as sessões).
+22. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
+23. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3 **só se for usar o modo clássico de uma eleição só** (veja abaixo).
+24. Vá em **Settings → API** e copie:
    - **Project URL** (ex: `https://abcdefgh.supabase.co`) — esse é o seu `VITE_SUPABASE_URL`
    - **anon public key** (uma string JWT longa começando com `eyJhbGc...`) — esse é o seu `VITE_SUPABASE_ANON_KEY`
 

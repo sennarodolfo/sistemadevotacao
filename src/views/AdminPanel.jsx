@@ -91,7 +91,8 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       setElectionForm({
         name: election.name,
         location_name: election.location_name,
-        code_digits: election.code_digits || 4
+        code_digits: election.code_digits || 4,
+        registered_voters: election.registered_voters ?? null
       })
       setTempElectionName(election.name)
     }
@@ -129,11 +130,15 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       // Usa o nome digitado (tempElectionName) em vez do que veio de election
       const finalName = (tempElectionName || '').trim() || electionForm.name
       const codeDigits = Math.min(8, Math.max(4, parseInt(electionForm.code_digits) || 4))
-      const updatedForm = { ...electionForm, name: finalName, code_digits: codeDigits }
+      const registeredVoters = electionForm.registered_voters === '' || electionForm.registered_voters === null || electionForm.registered_voters === undefined
+        ? null
+        : parseInt(electionForm.registered_voters)
+      const updatedForm = { ...electionForm, name: finalName, code_digits: codeDigits, registered_voters: registeredVoters }
       const result = await callAdmin('admin_update_election', {
         p_name: finalName,
         p_location_name: updatedForm.location_name,
-        p_code_digits: codeDigits
+        p_code_digits: codeDigits,
+        p_registered_voters: registeredVoters
       })
       if (!result || result.error) {
         throw new Error(result?.error === 'invalid_code_digits' ? 'A quantidade de dígitos deve ser entre 4 e 8.' : (result?.error || 'Não foi possível salvar.'))
@@ -615,18 +620,17 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
 
   async function saveSession(form) {
     try {
+      // IMPORTANTE: preserva o "id" de candidatos já existentes - é isso
+      // que permite ao backend ATUALIZAR em vez de recriar o candidato,
+      // preservando os votos já registrados para ele (ver migração 0017).
       const candidates = (form.candidates || [])
-        .map(c => ({ name: (c.name || '').trim(), photo_url: c.photo_url || null }))
+        .map(c => ({ id: c.id || null, name: (c.name || '').trim(), photo_url: c.photo_url || null }))
         .filter(c => c.name)
-      const registeredVoters = form.registered_voters === '' || form.registered_voters === null || form.registered_voters === undefined
-        ? null
-        : parseInt(form.registered_voters)
       if (form.id) {
         await callAdmin('admin_update_session', {
           p_session_id: form.id,
           p_title: form.title,
           p_votes_required: parseInt(form.votes_required),
-          p_registered_voters: registeredVoters,
           p_candidates: candidates,
           p_is_active: form.is_active
         })
@@ -634,7 +638,6 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
         await callAdmin('admin_create_session', {
           p_title: form.title,
           p_votes_required: parseInt(form.votes_required),
-          p_registered_voters: registeredVoters,
           p_candidates: candidates
         })
       }
@@ -866,6 +869,24 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
               </div>
             </div>
 
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-slate-700 mb-3">Eleição por Assembleia</h3>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Número de membros presentes</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={electionForm.registered_voters ?? ''}
+                  onChange={e => setElectionForm({ ...electionForm, registered_voters: e.target.value === '' ? null : parseInt(e.target.value) || 0 })}
+                  placeholder="Ex: 100"
+                  className="w-32 px-3 py-2 border border-slate-300 rounded-lg"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Quantidade de membros presentes na assembleia — vale para <b>todas as sessões</b> desta eleição (não muda de uma sessão para outra). O percentual de cada candidato na apuração é calculado em cima deste número — ex: com 100 membros presentes, um candidato com 80 votos aparece com 80%. Também é a base do cálculo de maioria absoluta (50% + 1) usado para marcar candidatos como "Eleito" nos Resultados.
+                </p>
+              </div>
+            </div>
+
             <button type="button" onClick={saveGeneral} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-semibold">
               Salvar Configurações
             </button>
@@ -931,10 +952,14 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
           <div className="bg-white card-shadow rounded-2xl p-6 fade-in">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-slate-800">Sessões de Votação</h2>
-              <button type="button" onClick={() => { setEditingSession({ title: '', votes_required: 1, registered_voters: null, candidates: [], is_active: true }); setShowSessionModal(true) }}
+              <button type="button" onClick={() => { setEditingSession({ title: '', votes_required: 1, candidates: [], is_active: true }); setShowSessionModal(true) }}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
                 <Icon name="plus" className="w-4 h-4" /> Nova Sessão
               </button>
+            </div>
+
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800 mb-4">
+              👥 Membros presentes: <b>{electionForm?.registered_voters ?? 'não definido'}</b> — vale para todas as sessões desta eleição. Para alterar, vá na aba "Geral".
             </div>
 
             <div className="space-y-2">
@@ -946,13 +971,12 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                     <p className="font-semibold">{s.title}</p>
                     <p className="text-xs text-slate-500">
                       {s.votes_required} voto(s) • {s.candidates?.length || 0} candidatos
-                      {s.registered_voters != null && <> • {s.registered_voters} membros presentes</>}
                     </p>
                   </div>
                   <button type="button" onClick={() => resetSession(s)} className="text-amber-600 hover:bg-amber-50 p-2 rounded" title="Reiniciar sessão">
                     <Icon name="refresh" className="w-4 h-4" />
                   </button>
-                  <button type="button" onClick={() => { setEditingSession({ ...s, candidates: (s.candidates || []).map(c => ({ name: c.name, photo_url: c.photo_url || null })) }); setShowSessionModal(true) }}
+                  <button type="button" onClick={() => { setEditingSession({ ...s, candidates: (s.candidates || []).map(c => ({ id: c.id, name: c.name, photo_url: c.photo_url || null })) }); setShowSessionModal(true) }}
                     className="text-blue-600 hover:bg-blue-50 p-2 rounded">
                     <Icon name="edit" className="w-4 h-4" />
                   </button>
@@ -1658,20 +1682,6 @@ function SessionModal({ session, onSave, onClose }) {
                 className="flex-1" />
             </div>
             <p className="text-xs text-slate-500 mt-1">O eleitor pode misturar candidatos e brancos livremente, totalizando este número.</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Número de membros presentes</label>
-            <input
-              type="number"
-              min="0"
-              value={form.registered_voters ?? ''}
-              onChange={e => setForm({ ...form, registered_voters: e.target.value === '' ? null : parseInt(e.target.value) || 0 })}
-              placeholder="Ex: 100"
-              className="w-32 px-3 py-2 border border-slate-300 rounded-lg"
-            />
-            <p className="text-xs text-slate-500 mt-1">
-              Quantidade de membros presentes na assembleia para esta sessão. O percentual de cada candidato na apuração é calculado em cima deste número (não do total de votos) — ex: com 100 membros presentes, um candidato com 80 votos aparece com 80%. Ao final da votação, o número de votantes desta sessão deve bater com este valor.
-            </p>
           </div>
           <div>
             <div className="flex items-center justify-between mb-1">
