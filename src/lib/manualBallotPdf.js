@@ -39,12 +39,19 @@ export function computeBallotLayout(sessions, w = CELL_W, h = CELL_H, pad = BALL
   cy += 9
   cy += 2.5  // linha divisória + respiro
 
+  // Linha GROSSA entre uma sessão e a próxima, para o eleitor nunca
+  // confundir onde termina uma votação e começa outra. Reserva um
+  // espaço fixo (linha + respiro), descontado do espaço disponível antes
+  // de calcular a altura das linhas de candidato.
+  const SEPARATOR_H = 1.8
+  const numSeparators = Math.max(0, sessions.length - 1)
+
   let totalRows = 0
   sessions.forEach(s => {
     totalRows += 1
     totalRows += Math.ceil((s.candidates || []).length / 2)
   })
-  const availableH = (h - pad) - cy
+  const availableH = (h - pad) - cy - (numSeparators * SEPARATOR_H)
   const rawRowH = totalRows > 0 ? availableH / totalRows : availableH
   const rowH = Math.max(2.6, Math.min(5.5, rawRowH))
   const fontSize = Math.max(5, Math.min(7.5, rowH * 1.7))
@@ -52,8 +59,14 @@ export function computeBallotLayout(sessions, w = CELL_W, h = CELL_H, pad = BALL
 
   const candidateBoxes = []
   const sessionTitles = []
+  const separators = []
 
-  sessions.forEach(session => {
+  sessions.forEach((session, sIdx) => {
+    if (sIdx > 0) {
+      separators.push({ x: pad, y: cy + SEPARATOR_H / 2, w: w - pad * 2 })
+      cy += SEPARATOR_H
+    }
+
     sessionTitles.push({ session_id: session.id, x: pad, y: cy, w: w - pad * 2, h: rowH, title: session.title, votes_required: session.votes_required })
     cy += rowH
 
@@ -82,7 +95,7 @@ export function computeBallotLayout(sessions, w = CELL_W, h = CELL_H, pad = BALL
     }
   })
 
-  return { pad, rowH, fontSize, codeRegion, sessionTitles, candidateBoxes }
+  return { pad, rowH, fontSize, codeRegion, sessionTitles, candidateBoxes, separators }
 }
 
 export function buildManualBallotsPdf(codes, election) {
@@ -164,6 +177,14 @@ function drawBallot(doc, x, y, w, h, code, electionName, sessions) {
   layout.sessionTitles.forEach(st => {
     const title = `${st.title} (vote em ${st.votes_required})`
     doc.text(truncateToWidth(doc, title, st.w), x + st.x, y + st.y + layout.rowH * 0.7)
+  })
+
+  // Linha GROSSA separando visualmente uma sessão da próxima, para o
+  // eleitor nunca confundir onde termina uma votação e começa outra.
+  doc.setDrawColor(30, 41, 59)
+  doc.setLineWidth(0.9)
+  layout.separators.forEach(sep => {
+    doc.line(x + sep.x, y + sep.y, x + sep.x + sep.w, y + sep.y)
   })
 
   doc.setFont('helvetica', 'normal')
