@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../components/Icon'
+import { ELECTION_ID } from '../lib/supabase'
 import jsPDF from 'jspdf'
 import * as XLSX from 'xlsx'
 
@@ -117,7 +118,7 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
 
   function openPublicWindow() {
     if (!session) return
-    const url = `${window.location.origin}${window.location.pathname}#resultadospublicos:${session.session_id}`
+    const url = `${window.location.origin}${window.location.pathname}#resultadospublicos/${ELECTION_ID}/${session.session_id}`
     window.open(url, '_blank', 'width=1280,height=800,menubar=no,toolbar=no')
   }
 

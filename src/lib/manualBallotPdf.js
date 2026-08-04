@@ -163,8 +163,12 @@ function drawBallot(doc, x, y, w, h, code, electionName, sessions) {
 
   doc.setTextColor(30, 41, 59)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(15)
-  doc.text(code.split('').join(' '), x + layout.codeRegion.x, y + layout.codeRegion.y + 6)
+  // Fonte/espaçamento se ajustam à quantidade de dígitos (admin pode
+  // configurar de 4 a 8), pra sempre caber na largura da cédula.
+  const codeFontSize = code.length <= 4 ? 15 : code.length <= 6 ? 12 : 9
+  const codeSep = code.length <= 5 ? ' ' : ''
+  doc.setFontSize(codeFontSize)
+  doc.text(code.split('').join(codeSep), x + layout.codeRegion.x, y + layout.codeRegion.y + 6)
 
   doc.setDrawColor(210, 210, 210)
   doc.setLineWidth(0.15)

@@ -54,11 +54,15 @@ export function buildCodesPdf(codes, electionName) {
     doc.setLineWidth(0.1)
     doc.line(x + 4, y + 15, x + cellW - 4, y + 15)
 
-    // Código grande e espaçado
+    // Código grande e espaçado (fonte/espaçamento se ajustam à
+    // quantidade de dígitos, já que o admin pode configurar de 4 a 8)
     doc.setTextColor(30, 41, 59) // slate-800
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(26)
-    const spaced = String(code).split('').join('  ')
+    const codeStr = String(code)
+    const codeFontSize = codeStr.length <= 4 ? 26 : codeStr.length <= 6 ? 20 : 16
+    const codeSep = codeStr.length <= 4 ? '  ' : codeStr.length <= 6 ? ' ' : ''
+    doc.setFontSize(codeFontSize)
+    const spaced = codeStr.split('').join(codeSep)
     doc.text(spaced, cx, y + cellH / 2 + 7, { align: 'center' })
 
     // Rodapé

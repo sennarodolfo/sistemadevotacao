@@ -12,7 +12,7 @@ const CORNER_LABELS = [
 ]
 
 const CODE_ERROR_MESSAGES = {
-  invalid_format: 'Código reconhecido não tem 4 dígitos válidos - corrija manualmente.',
+  invalid_format: 'Código reconhecido não tem dígitos válidos suficientes - corrija manualmente.',
   code_not_found: 'Código não encontrado. Confira se os dígitos foram lidos corretamente.',
   code_already_used: 'Esta cédula já concluiu a votação em todas as sessões e não pode ser usada novamente.'
 }
@@ -37,6 +37,7 @@ function groupMarksBySession(sessions, marks) {
 
 export default function BallotScanView({ election }) {
   const activeSessions = (election?.sessions || []).filter(s => s.is_active)
+  const codeLength = Math.min(8, Math.max(4, election?.code_digits || 4))
 
   const [step, setStep] = useState('capture') // capture | corners | processing | review | done
   const [error, setError] = useState('')
@@ -101,7 +102,7 @@ export default function BallotScanView({ election }) {
       const marks = readMarks(warped, activeSessions)
       setSessionsReview(groupMarksBySession(activeSessions, marks))
 
-      const codeResult = await readCode(warped, activeSessions)
+      const codeResult = await readCode(warped, activeSessions, codeLength)
       setRecognizedCode(codeResult.digits)
       setCodeConfidence(codeResult.confidence)
 
@@ -124,8 +125,8 @@ export default function BallotScanView({ election }) {
   async function confirmAndSubmit() {
     setError('')
     const code = recognizedCode.replace(/[^0-9]/g, '')
-    if (code.length !== 4) {
-      setError('O código precisa ter 4 dígitos. Corrija o campo antes de confirmar.')
+    if (code.length !== codeLength) {
+      setError(`O código precisa ter ${codeLength} dígitos. Corrija o campo antes de confirmar.`)
       return
     }
     if (overvoteSessions.length > 0) {
@@ -325,11 +326,11 @@ export default function BallotScanView({ election }) {
                 <input
                   type="text"
                   inputMode="numeric"
-                  maxLength={4}
+                  maxLength={codeLength}
                   value={recognizedCode}
-                  onChange={e => setRecognizedCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-                  className={`w-32 px-3 py-2 border rounded-lg text-center font-mono text-2xl tracking-widest ${recognizedCode.length === 4 ? 'border-slate-300' : 'border-amber-400 bg-amber-50'}`}
-                  placeholder="0000"
+                  onChange={e => setRecognizedCode(e.target.value.replace(/[^0-9]/g, '').slice(0, codeLength))}
+                  className={`w-32 px-3 py-2 border rounded-lg text-center font-mono text-2xl tracking-widest ${recognizedCode.length === codeLength ? 'border-slate-300' : 'border-amber-400 bg-amber-50'}`}
+                  placeholder={'0'.repeat(codeLength)}
                 />
                 <p className="text-xs text-slate-400 mt-1">Confira com o código impresso na cédula e corrija se necessário.</p>
               </div>

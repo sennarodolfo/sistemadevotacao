@@ -28,9 +28,12 @@
 14. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0012_corrige_restauracao_backup.sql` e rode (corrige a restauração de backup, que antes podia falhar silenciosamente).
 15. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0013_backup_completo.sql` e rode (expande o backup para incluir votos, comprovantes e códigos).
 16. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0014_corrige_deploy_import.sql` e rode (corrige um problema de implantação que podia deixar a restauração desatualizada — rode mesmo se já rodou a 0013).
-17. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
-18. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
-19. **Settings → API** copie:
+17. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0015_tamanho_codigo_configuravel.sql` e rode (permite ao admin escolher de 4 a 8 dígitos para os códigos).
+18. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0016_contas_usuario.sql` e rode (habilita o modo multiusuário — contas de organizador e eleições próprias).
+19. Em **Authentication → Providers**, confirme que **Email** está habilitado (vem assim por padrão). Em **Authentication → Settings**, decida se quer exigir confirmação de e-mail no cadastro (recomendado em produção).
+20. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
+21. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID` — **só necessário se for usar o modo clássico de uma eleição só**. No modo multiusuário (recomendado), pule este passo.
+22. **Settings → API** copie:
    - **Project URL** → `VITE_SUPABASE_URL`
    - **anon public key** → `VITE_SUPABASE_ANON_KEY`
 
@@ -41,10 +44,10 @@
 3. **Environment Variables**, adicione:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
-   - `VITE_ELECTION_ID`
+   - `VITE_ELECTION_ID` *(opcional — só para o modo clássico de uma eleição só)*
 4. Deploy.
 
-Acesse `/` para votar, `#admin` para o painel (senha padrão: `admin123`) e `#votacaomanual` para a votação manual do mesário (senha própria, padrão: `manual123`).
+Acesse `/#login` para o organizador criar conta e gerenciar suas eleições (modo multiusuário), `/` para votar no modo clássico (se `VITE_ELECTION_ID` estiver definido), `#admin` para o painel (senha padrão: `admin123`) e `#votacaomanual` para a votação manual do mesário (senha própria, padrão: `manual123`).
 
 ## 4. Rodar localmente
 
@@ -74,3 +77,5 @@ docker compose up -d
 | "Eleição não encontrada" | UUID errado no `.env` | Rode o seed novamente e copie o UUID |
 | "Não foi possível conectar" | URL ou chave Supabase errada | Revise `Settings → API` no Supabase |
 | "Sessão fechada" | Admin fechou a sessão | Reabra pelo painel `#admin` |
+| Não recebo e-mail de confirmação de cadastro | Confirmação de e-mail habilitada mas SMTP não configurado | Em `Authentication → Settings`, desabilite a confirmação de e-mail para testes, ou configure um provedor SMTP |
+| Esqueci a senha de admin/manual de uma eleição criada pelo Dashboard | Senha só é mostrada uma vez na criação | No Dashboard, use "Redefinir senha admin"/"Redefinir senha manual" no card da eleição |

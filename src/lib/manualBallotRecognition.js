@@ -83,11 +83,11 @@ export function readMarks(warpedCanvas, sessions) {
   return scored.map(s => ({ ...s, marked: s.darkness >= threshold }))
 }
 
-// OCR: lê o código de 4 dígitos impresso no topo da cédula, via
-// Tesseract.js (roda inteiramente no navegador, sem backend). Recorta
-// só a região onde o código foi impresso (mesmo layout do PDF) e amplia
-// antes de processar, para acelerar e melhorar a precisão.
-export async function readCode(warpedCanvas, sessions) {
+// OCR: lê o código impresso no topo da cédula (comprimento configurável,
+// 4 a 8 dígitos), via Tesseract.js (roda inteiramente no navegador, sem
+// backend). Recorta só a região onde o código foi impresso (mesmo layout
+// do PDF) e amplia antes de processar, para acelerar e melhorar a precisão.
+export async function readCode(warpedCanvas, sessions, codeLength = 4) {
   const layout = computeBallotLayout(sessions, CELL_W, CELL_H, BALLOT_PAD)
   const rect = mmRectToPx(layout.codeRegion)
 
@@ -108,7 +108,7 @@ export async function readCode(warpedCanvas, sessions) {
     })
     const { data } = await worker.recognize(cropCanvas)
     const digits = (data.text || '').replace(/[^0-9]/g, '')
-    return { raw: data.text || '', digits: digits.slice(0, 4), confidence: data.confidence || 0 }
+    return { raw: data.text || '', digits: digits.slice(0, codeLength), confidence: data.confidence || 0 }
   } finally {
     await worker.terminate()
   }

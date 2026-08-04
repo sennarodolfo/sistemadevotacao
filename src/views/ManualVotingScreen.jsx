@@ -4,9 +4,19 @@ import PhotoLightbox from '../components/PhotoLightbox'
 import { supabase, ELECTION_ID } from '../lib/supabase'
 
 const CODE_ERROR_MESSAGES = {
-  invalid_format: 'Digite os 4 dígitos da cédula.',
+  invalid_format: 'Digite todos os dígitos da cédula.',
   code_not_found: 'Cédula não encontrada. Verifique o código impresso.',
   code_already_used: 'Esta cédula já concluiu a votação em todas as sessões e não pode ser usada novamente.'
+}
+
+// Tamanho de cada quadradinho conforme a quantidade de dígitos (definida
+// pelo admin, 4 a 8), pra sempre caber confortavelmente no cartão.
+const BOX_SIZE_BY_LEN = {
+  4: { box: 56, text: 'text-3xl' },
+  5: { box: 50, text: 'text-2xl' },
+  6: { box: 46, text: 'text-2xl' },
+  7: { box: 42, text: 'text-xl' },
+  8: { box: 38, text: 'text-xl' }
 }
 
 const VOTE_ERROR_MESSAGES = {
@@ -32,12 +42,13 @@ function findNextPendingIdx(sessions, completed) {
 // tabela manual_ballot_codes), então nunca colide com eles.
 export default function ManualVotingScreen({ election, onClose }) {
   const activeSessions = (election?.sessions || []).filter(s => s.is_active)
+  const codeLength = Math.min(8, Math.max(4, election?.code_digits || 4))
 
   const [phase, setPhase] = useState('codeEntry') // codeEntry | voting | ballotDone
   const [ballotCount, setBallotCount] = useState(0)
 
   // ----- Entrada do código -----
-  const [digits, setDigits] = useState(['', '', '', ''])
+  const [digits, setDigits] = useState(() => Array(codeLength).fill(''))
   const [codeError, setCodeError] = useState('')
   const [redeeming, setRedeeming] = useState(false)
   const inputsRef = useRef([])
@@ -72,7 +83,7 @@ export default function ManualVotingScreen({ election, onClose }) {
       next[idx] = value
       return next
     })
-    if (value && idx < 3) focusInput(idx + 1)
+    if (value && idx < codeLength - 1) focusInput(idx + 1)
   }
 
   function handleDigitKeyDown(idx, e) {
@@ -81,20 +92,20 @@ export default function ManualVotingScreen({ election, onClose }) {
   }
 
   function handlePaste(e) {
-    const text = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, 4)
+    const text = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, codeLength)
     if (!text) return
     e.preventDefault()
-    const next = ['', '', '', '']
+    const next = Array(codeLength).fill('')
     for (let i = 0; i < text.length; i++) next[i] = text[i]
     setDigits(next)
     setCodeError('')
-    focusInput(Math.min(text.length, 4) - 1)
+    focusInput(Math.min(text.length, codeLength) - 1)
   }
 
   async function redeemCode() {
     const code = digits.join('')
-    if (code.length !== 4) {
-      setCodeError('Digite os 4 dígitos da cédula.')
+    if (code.length !== codeLength) {
+      setCodeError('Digite todos os dígitos da cédula.')
       return
     }
     if (activeSessions.length === 0) {
@@ -111,7 +122,7 @@ export default function ManualVotingScreen({ election, onClose }) {
       if (rpcErr) throw rpcErr
       if (data?.error) {
         setCodeError(CODE_ERROR_MESSAGES[data.error] || 'Código inválido.')
-        setDigits(['', '', '', ''])
+        setDigits(Array(codeLength).fill(''))
         focusInput(0)
         return
       }
@@ -128,7 +139,7 @@ export default function ManualVotingScreen({ election, onClose }) {
       setCompleted(realCompleted)
       const nextIdx = findNextPendingIdx(activeSessions, realCompleted)
       setSessionIdx(nextIdx === -1 ? 0 : nextIdx)
-      setDigits(['', '', '', ''])
+      setDigits(Array(codeLength).fill(''))
       setPhase('voting')
     } catch (e) {
       setCodeError(e.message || 'Erro ao validar a cédula.')
@@ -237,7 +248,7 @@ export default function ManualVotingScreen({ election, onClose }) {
     setSessionIdx(0)
     setSelected([])
     setVoteError('')
-    setDigits(['', '', '', ''])
+    setDigits(Array(codeLength).fill(''))
     setPhase('codeEntry')
   }
 
@@ -270,11 +281,11 @@ export default function ManualVotingScreen({ election, onClose }) {
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Votação Manual</h1>
             <p className="text-sm text-slate-500 mt-2">
-              Digite o código de 4 dígitos impresso na cédula de papel para liberar o lançamento dos votos em todas as sessões.
+              Digite o código de {codeLength} dígitos impresso na cédula de papel para liberar o lançamento dos votos em todas as sessões.
             </p>
           </div>
 
-          <div className="flex justify-center gap-3 mb-4" onPaste={handlePaste}>
+          <div className="flex justify-center gap-2 mb-4 flex-wrap" onPaste={handlePaste}>
             {digits.map((d, i) => (
               <input
                 key={i}
@@ -288,7 +299,8 @@ export default function ManualVotingScreen({ election, onClose }) {
                 onKeyDown={e => handleDigitKeyDown(i, e)}
                 disabled={redeeming}
                 autoFocus={i === 0}
-                className="w-14 h-16 text-center text-3xl font-bold text-slate-800 border-2 border-slate-300 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none disabled:opacity-50 transition"
+                style={{ width: (BOX_SIZE_BY_LEN[codeLength] || BOX_SIZE_BY_LEN[4]).box, height: (BOX_SIZE_BY_LEN[codeLength] || BOX_SIZE_BY_LEN[4]).box * 1.15 }}
+                className={`text-center ${(BOX_SIZE_BY_LEN[codeLength] || BOX_SIZE_BY_LEN[4]).text} font-bold text-slate-800 border-2 border-slate-300 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none disabled:opacity-50 transition`}
               />
             ))}
           </div>

@@ -1,19 +1,37 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../components/Icon'
 import { supabase, ELECTION_ID } from '../lib/supabase'
 import { setVoterToken } from '../lib/api'
 
 const ERROR_MESSAGES = {
-  invalid_format: 'Digite os 4 dígitos do código.',
+  invalid_format: 'Digite todos os dígitos do código.',
   code_not_found: 'Código não encontrado. Verifique com a mesa e tente novamente.',
   code_already_used: 'Este código já concluiu a votação em todas as sessões e não pode ser usado novamente.'
 }
 
+// Tamanho de cada quadradinho conforme a quantidade de dígitos (definida
+// pelo admin, 4 a 8), pra sempre caber confortavelmente no cartão.
+const BOX_SIZE_BY_LEN = {
+  4: { box: 56, text: 'text-3xl' },
+  5: { box: 50, text: 'text-2xl' },
+  6: { box: 46, text: 'text-2xl' },
+  7: { box: 42, text: 'text-xl' },
+  8: { box: 38, text: 'text-xl' }
+}
+
 export default function CodeEntryScreen({ election, onValidated, onBack }) {
-  const [digits, setDigits] = useState(['', '', '', ''])
+  const codeLength = Math.min(8, Math.max(4, election?.code_digits || 4))
+  const [digits, setDigits] = useState(() => Array(codeLength).fill(''))
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const inputsRef = useRef([])
+
+  // Se o comprimento mudar (ex: dados da eleição chegaram depois), reinicia os campos
+  useEffect(() => {
+    setDigits(Array(codeLength).fill(''))
+  }, [codeLength])
+
+  const { box: boxSize, text: textClass } = BOX_SIZE_BY_LEN[codeLength] || BOX_SIZE_BY_LEN[4]
 
   function focusInput(idx) {
     inputsRef.current[idx]?.focus()
@@ -28,7 +46,7 @@ export default function CodeEntryScreen({ election, onValidated, onBack }) {
       next[idx] = value
       return next
     })
-    if (value && idx < 3) focusInput(idx + 1)
+    if (value && idx < codeLength - 1) focusInput(idx + 1)
   }
 
   function handleKeyDown(idx, e) {
@@ -41,20 +59,20 @@ export default function CodeEntryScreen({ election, onValidated, onBack }) {
   }
 
   function handlePaste(e) {
-    const text = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, 4)
+    const text = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, codeLength)
     if (!text) return
     e.preventDefault()
-    const next = ['', '', '', '']
+    const next = Array(codeLength).fill('')
     for (let i = 0; i < text.length; i++) next[i] = text[i]
     setDigits(next)
     setError('')
-    focusInput(Math.min(text.length, 4) - 1)
+    focusInput(Math.min(text.length, codeLength) - 1)
   }
 
   async function submitCode() {
     const code = digits.join('')
-    if (code.length !== 4) {
-      setError('Digite os 4 dígitos do código.')
+    if (code.length !== codeLength) {
+      setError('Digite todos os dígitos do código.')
       return
     }
     setError('')
@@ -67,7 +85,7 @@ export default function CodeEntryScreen({ election, onValidated, onBack }) {
       if (rpcErr) throw rpcErr
       if (data?.error) {
         setError(ERROR_MESSAGES[data.error] || 'Código inválido.')
-        setDigits(['', '', '', ''])
+        setDigits(Array(codeLength).fill(''))
         focusInput(0)
         return
       }
@@ -89,12 +107,12 @@ export default function CodeEntryScreen({ election, onValidated, onBack }) {
           </div>
           <h1 className="text-2xl font-bold text-slate-900">Código de Votação</h1>
           <p className="text-sm text-slate-500 mt-2">
-            Digite o código de 4 dígitos fornecido pela mesa para iniciar sua votação em{' '}
+            Digite o código de {codeLength} dígitos fornecido pela mesa para iniciar sua votação em{' '}
             <b>{election?.name || 'Urna Eletrônica'}</b>.
           </p>
         </div>
 
-        <div className="flex justify-center gap-3 mb-4" onPaste={handlePaste}>
+        <div className="flex justify-center gap-2 mb-4 flex-wrap" onPaste={handlePaste}>
           {digits.map((d, i) => (
             <input
               key={i}
@@ -108,7 +126,8 @@ export default function CodeEntryScreen({ election, onValidated, onBack }) {
               onKeyDown={e => handleKeyDown(i, e)}
               disabled={loading}
               autoFocus={i === 0}
-              className="w-14 h-16 text-center text-3xl font-bold text-slate-800 border-2 border-slate-300 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none disabled:opacity-50 transition"
+              style={{ width: boxSize, height: boxSize * 1.15 }}
+              className={`text-center ${textClass} font-bold text-slate-800 border-2 border-slate-300 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none disabled:opacity-50 transition`}
             />
           ))}
         </div>

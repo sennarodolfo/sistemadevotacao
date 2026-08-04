@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { supabase, ELECTION_ID, ENV_STATUS, CONFIG_ERROR } from './lib/supabase'
+import { supabase, ELECTION_ID, ENV_STATUS, CONFIG_ERROR, setElectionId } from './lib/supabase'
 import { getVoterToken, clearVoterToken } from './lib/api'
 import { Icon } from './components/Icon'
 import WelcomeScreen from './views/WelcomeScreen'
@@ -11,6 +11,8 @@ import AdminLogin from './views/AdminLogin'
 import AdminPanel from './views/AdminPanel'
 import ManualVotingScreen from './views/ManualVotingScreen'
 import PublicResultsScreen from './views/PublicResultsScreen'
+import AuthScreen from './views/AuthScreen'
+import DashboardScreen from './views/DashboardScreen'
 
 function ConfigError({ message }) {
   return (
@@ -27,12 +29,12 @@ function ConfigError({ message }) {
         </div>
         <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-lg text-sm mb-4">
           <p className="font-semibold mb-2">{message}</p>
-          <p className="mt-3">Para hospedar este sistema na Vercel ou Netlify você precisa definir 3 variáveis de ambiente no painel da plataforma:</p>
+          <p className="mt-3">Para hospedar este sistema na Vercel ou Netlify você precisa definir 2 variáveis de ambiente no painel da plataforma:</p>
           <ul className="list-disc ml-5 mt-2 space-y-1 font-mono text-xs">
             <li>VITE_SUPABASE_URL</li>
             <li>VITE_SUPABASE_ANON_KEY</li>
-            <li>VITE_ELECTION_ID</li>
           </ul>
+          <p className="mt-3"><code>VITE_ELECTION_ID</code> é opcional: só é necessária se você quiser rodar no modo clássico de "uma eleição só" fixa no deploy. No modo multiusuário, cada organizador cria e acessa suas próprias eleições pelo link de <a href="#login" className="underline font-semibold">login</a>.</p>
           <p className="mt-3">Consulte o <b>GUIA_INSTALACAO.pdf</b> (na pasta <code>docs/</code>) ou o README para o passo a passo completo.</p>
         </div>
         <details className="text-xs text-slate-500">
@@ -40,7 +42,7 @@ function ConfigError({ message }) {
           <div className="mt-2 space-y-1 font-mono bg-slate-100 p-3 rounded">
             <div>VITE_SUPABASE_URL: {ENV_STATUS.url ? '✅ configurado' : '❌ ausente'}</div>
             <div>VITE_SUPABASE_ANON_KEY: {ENV_STATUS.key ? '✅ configurado' : '❌ ausente'}</div>
-            <div>VITE_ELECTION_ID: {ENV_STATUS.election ? '✅ configurado' : '❌ ausente'}</div>
+            <div>VITE_ELECTION_ID (opcional): {ENV_STATUS.election ? '✅ configurado' : 'não definido'}</div>
           </div>
         </details>
       </div>
@@ -80,7 +82,26 @@ function ErrorScreen({ error, onRetry }) {
 // o "modo urna" (bloqueio de voltar + aviso de atualização) fica ativo.
 const KIOSK_LOCK_SCREENS = ['welcome', 'codeEntry', 'voting', 'sessionDone', 'final']
 
-const PUBLIC_RESULTS_HASH_PREFIX = '#resultadospublicos:'
+// Roteamento por hash. No modo multiusuário, os links carregam o ID da
+// eleição (#v/<id>, #admin/<id>, #votacaomanual/<id>); sem o ID (#admin,
+// #votacaomanual sozinhos) o app usa a eleição padrão do ambiente
+// (VITE_ELECTION_ID) - mantém 100% compatível com quem já usa o sistema
+// no modo clássico de uma eleição só.
+function parseHash() {
+  const hash = window.location.hash
+  if (hash === '#login') return { route: 'login' }
+  if (hash === '#dashboard') return { route: 'dashboard' }
+  if (hash.startsWith('#v/')) return { route: 'vote', electionId: hash.slice(3) }
+  if (hash.startsWith('#admin/')) return { route: 'admin', electionId: hash.slice(7) }
+  if (hash === '#admin') return { route: 'admin', electionId: null }
+  if (hash.startsWith('#votacaomanual/')) return { route: 'manual', electionId: hash.slice(15) }
+  if (hash === '#votacaomanual') return { route: 'manual', electionId: null }
+  if (hash.startsWith('#resultadospublicos/')) {
+    const parts = hash.slice('#resultadospublicos/'.length).split('/')
+    return { route: 'publicResults', electionId: parts[0], sessionId: parts[1] }
+  }
+  return { route: null }
+}
 
 export default function App() {
   const [screen, setScreen] = useState('loading')
@@ -94,26 +115,53 @@ export default function App() {
   const [publicResultsSessionId, setPublicResultsSessionId] = useState('')
   const [adminAuthOk, setAdminAuthOk] = useState(() => sessionStorage.getItem('admin_auth') === '1')
   const [manualAuthOk, setManualAuthOk] = useState(() => sessionStorage.getItem('manual_auth') === '1')
+  const [authUser, setAuthUser] = useState(null)
+  const [authChecked, setAuthChecked] = useState(false)
   const tapCount = useRef(0)
   const tapTimer = useRef(null)
 
-  // Sincroniza tela com o hash da URL (#admin, #votacaomanual ou #resultadospublicos:<sessionId>)
+  // Sessão do ORGANIZADOR (Supabase Auth) - usada só pelas telas de
+  // login/dashboard. Não afeta em nada o fluxo do eleitor, que nunca
+  // precisa de conta.
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setAuthUser(data?.session?.user || null)
+      setAuthChecked(true)
+    })
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(session?.user || null)
+    })
+    return () => sub?.subscription?.unsubscribe()
+  }, [])
+
+  // Sincroniza tela com o hash da URL
   useEffect(() => {
     function syncHash() {
-      const hash = window.location.hash
-      if (hash === '#admin') {
+      const r = parseHash()
+      if (r.route === 'login') {
+        setScreen('login')
+      } else if (r.route === 'dashboard') {
+        setScreen(authUser ? 'dashboard' : 'login')
+      } else if (r.route === 'admin') {
+        if (r.electionId) setElectionId(r.electionId)
         setScreen(adminAuthOk ? 'admin' : 'adminLogin')
-      } else if (hash === '#votacaomanual') {
+      } else if (r.route === 'manual') {
+        if (r.electionId) setElectionId(r.electionId)
         setScreen(manualAuthOk ? 'manualVoting' : 'manualVotingLogin')
-      } else if (hash.startsWith(PUBLIC_RESULTS_HASH_PREFIX)) {
-        setPublicResultsSessionId(hash.slice(PUBLIC_RESULTS_HASH_PREFIX.length))
+      } else if (r.route === 'publicResults') {
+        if (r.electionId) setElectionId(r.electionId)
+        setPublicResultsSessionId(r.sessionId || '')
         setScreen('publicResults')
+      } else if (r.route === 'vote') {
+        setElectionId(r.electionId)
+        loadElection()
       }
     }
     syncHash()
     window.addEventListener('hashchange', syncHash)
     return () => window.removeEventListener('hashchange', syncHash)
-  }, [adminAuthOk, manualAuthOk])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminAuthOk, manualAuthOk, authUser])
 
   // Verificação inicial (uma única vez)
   useEffect(() => {
@@ -122,9 +170,54 @@ export default function App() {
       setScreen('configError')
       return
     }
-    loadElection()
+    const r = parseHash()
+    if (r.route === 'login') {
+      setScreen('login')
+      return
+    }
+    if (r.route === 'dashboard') {
+      // authChecked ainda pode não ter resolvido no primeiro render;
+      // o efeito de sessão acima cuida de corrigir a tela quando resolver.
+      setScreen('login')
+      return
+    }
+    if (r.route === 'vote') {
+      setElectionId(r.electionId)
+      loadElection()
+      return
+    }
+    if (r.route === 'admin' || r.route === 'manual') {
+      if (r.electionId) setElectionId(r.electionId)
+      loadElection()
+      return
+    }
+    if (r.route === 'publicResults') {
+      if (r.electionId) setElectionId(r.electionId)
+      setPublicResultsSessionId(r.sessionId || '')
+      loadElection()
+      return
+    }
+    // Sem hash / rota desconhecida: modo clássico (uma eleição só, via
+    // VITE_ELECTION_ID) se configurado, senão manda para o login do
+    // organizador (não há eleição nenhuma pra mostrar ao eleitor).
+    if (ELECTION_ID) {
+      loadElection()
+    } else {
+      setScreen('login')
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Quando a sessão de login é confirmada, corrige a tela caso o boot
+  // tenha caído em #dashboard antes de sabermos se o usuário já estava logado.
+  useEffect(() => {
+    if (!authChecked) return
+    const r = parseHash()
+    if (r.route === 'dashboard') {
+      setScreen(authUser ? 'dashboard' : 'login')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authChecked])
 
   // ===== "Modo urna": impede que o eleitor saia da votação sem querer =====
   // 1) Botão Voltar do navegador: como é um SPA (nunca troca de página de
@@ -162,27 +255,36 @@ export default function App() {
     try {
       setError('')
       setScreen('loading')
+
+      if (!ELECTION_ID) {
+        // Nenhuma eleição ativa (link inválido ou sessão expirada) -
+        // manda para o login do organizador em vez de tentar buscar
+        // uma eleição inexistente.
+        setScreen('login')
+        return
+      }
+
       const { data, error: rpcErr } = await supabase.rpc('get_public_election', {
         p_election_id: ELECTION_ID
       })
       if (rpcErr) throw rpcErr
-      if (!data) throw new Error('Eleição não encontrada. Verifique se o seed foi executado no Supabase e se o VITE_ELECTION_ID está correto.')
+      if (!data) throw new Error('Eleição não encontrada. Verifique se o link/código está correto.')
       setElection(data)
 
       // Rotas administrativas/de apoio têm prioridade sobre o fluxo do
       // eleitor: mesmo que este navegador tenha um voter_token guardado
       // (ex: quem administra também já votou nele antes), essas telas
       // nunca devem ser desviadas para o comprovante do eleitor.
-      if (window.location.hash === '#admin') {
+      const r = parseHash()
+      if (r.route === 'admin') {
         setScreen(adminAuthOk ? 'admin' : 'adminLogin')
         return
       }
-      if (window.location.hash === '#votacaomanual') {
+      if (r.route === 'manual') {
         setScreen(manualAuthOk ? 'manualVoting' : 'manualVotingLogin')
         return
       }
-      if (window.location.hash.startsWith(PUBLIC_RESULTS_HASH_PREFIX)) {
-        setPublicResultsSessionId(window.location.hash.slice(PUBLIC_RESULTS_HASH_PREFIX.length))
+      if (r.route === 'publicResults') {
         setScreen('publicResults')
         return
       }
@@ -230,6 +332,32 @@ export default function App() {
     }
   }
 
+  // ===== Organizador (Supabase Auth) =====
+  function handleAuthenticated() {
+    try { history.replaceState(null, '', window.location.pathname + window.location.search + '#dashboard') } catch (_) {}
+    setScreen('dashboard')
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    try { history.replaceState(null, '', window.location.pathname + window.location.search) } catch (_) {}
+    setScreen('login')
+  }
+
+  // Abrir o painel admin/votação manual de UMA eleição específica a
+  // partir do Dashboard: troca a eleição ativa e navega, sem precisar
+  // que o usuário saiba a senha de admin de cor (ela já foi mostrada -
+  // ou pode ser trocada - na hora de criar a eleição).
+  function handleDashboardOpenAdmin(electionId) {
+    setElectionId(electionId)
+    window.location.hash = '#admin/' + electionId
+  }
+
+  function handleDashboardOpenManualVoting(electionId) {
+    setElectionId(electionId)
+    window.location.hash = '#votacaomanual/' + electionId
+  }
+
   function openAdmin() {
     if (adminAuthOk) setScreen('admin')
     else setScreen('adminLogin')
@@ -247,7 +375,7 @@ export default function App() {
     sessionStorage.removeItem('admin_auth')
     sessionStorage.removeItem('admin_pwd')
     // Limpa o hash para não voltar a exigir senha por causa do hashchange
-    if (window.location.hash === '#admin') {
+    if (window.location.hash.startsWith('#admin')) {
       try { history.replaceState(null, '', window.location.pathname + window.location.search) } catch (_) {}
     }
     setScreen('welcome')
@@ -266,7 +394,7 @@ export default function App() {
     setManualAuthOk(false)
     sessionStorage.removeItem('manual_auth')
     sessionStorage.removeItem('manual_pwd')
-    if (window.location.hash === '#votacaomanual') {
+    if (window.location.hash.startsWith('#votacaomanual')) {
       try { history.replaceState(null, '', window.location.pathname + window.location.search) } catch (_) {}
     }
     setScreen('welcome')
@@ -395,6 +523,26 @@ export default function App() {
   if (screen === 'configError') return <ConfigError message={error} />
   if (screen === 'loading') return <LoadingScreen />
   if (screen === 'error') return <ErrorScreen error={error} onRetry={loadElection} />
+
+  if (screen === 'login') {
+    return (
+      <AuthScreen
+        onAuthenticated={handleAuthenticated}
+        onBack={() => { try { history.replaceState(null, '', window.location.pathname + window.location.search) } catch (_) {} loadElection() }}
+      />
+    )
+  }
+
+  if (screen === 'dashboard') {
+    return (
+      <DashboardScreen
+        userEmail={authUser?.email}
+        onOpenAdmin={handleDashboardOpenAdmin}
+        onOpenManualVoting={handleDashboardOpenManualVoting}
+        onLogout={handleLogout}
+      />
+    )
+  }
 
   if (screen === 'adminLogin') {
     return <AdminLogin onLogin={handleAdminLogin} onBack={() => setScreen('welcome')} />

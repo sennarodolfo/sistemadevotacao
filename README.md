@@ -7,12 +7,13 @@ Sistema de votação eletrônica **multi-sessão** com backend em **Supabase** (
 
 ## ✨ Funcionalidades
 
+- ✅ Modo multiusuário: qualquer pessoa cria sua conta (e-mail + senha) e gerencia suas próprias eleições, isoladas das demais, com link de votação próprio para compartilhar — continua 100% compatível com o modo clássico de "uma eleição só"
 - ✅ Múltiplas sessões de votação em uma mesma eleição (ex: Presbíteros, Diáconos, etc.)
 - ✅ Eleição por assembleia: número de membros presentes por sessão, com percentual de cada candidato calculado sobre esse total (não sobre o total de votos) e indicação de "Eleito" (50% + 1)
 - ✅ Auditoria exportável em PDF, além da lista no painel
 - ✅ Conferência de votos: identifica códigos (eleitor ou cédula manual) que não votaram em todas as sessões, com relatório exportável em PDF
 - ✅ Foto opcional de cada candidato (upload no cadastro, com zoom ao clicar na votação)
-- ✅ Autenticação do eleitor por código numérico de 4 dígitos, bloqueado apenas ao concluir TODAS as sessões — se parar no meio, pode retomar com o mesmo código em qualquer dispositivo
+- ✅ Autenticação do eleitor por código numérico configurável (4 a 8 dígitos, escolhido pelo admin), bloqueado apenas ao concluir TODAS as sessões — se parar no meio, pode retomar com o mesmo código em qualquer dispositivo
 - ✅ Geração em lote de códigos de votação com exportação em PDF pronto para impressão e recorte
 - ✅ Gestão individual de códigos: resetar (destravar sem apagar votos) ou apagar (remove o código e os votos feitos com ele) — inclusive em lote (todos de uma vez)
 - ✅ Módulo de cédulas manuais (`#votacaomanual`): códigos de 4 dígitos próprios e distintos dos códigos do eleitor, PDF com o código + lista de candidatos para marcação em papel, código digitado uma única vez libera todas as sessões, e aparece na Auditoria identificado como "Mesário (manual)"
@@ -52,6 +53,8 @@ votacao-supabase/
 │   ├── migrations/0012_corrige_restauracao_backup.sql  # Corrige restauração de backup
 │   ├── migrations/0013_backup_completo.sql    # Backup completo (votos, comprovantes, códigos)
 │   ├── migrations/0014_corrige_deploy_import.sql  # Corrige implantação da função de restauração
+│   ├── migrations/0015_tamanho_codigo_configuravel.sql  # Tamanho do código configurável (4-8 dígitos)
+│   ├── migrations/0016_contas_usuario.sql     # Contas de usuário e eleições próprias (multiusuário)
 │   └── seed/seed.sql             # Dados iniciais
 ├── index.html
 ├── package.json
@@ -100,9 +103,11 @@ git push -u origin main
 16. Crie **outra** query, abra o arquivo `supabase/migrations/0012_corrige_restauracao_backup.sql`, copie todo o conteúdo e rode também (corrige a restauração de backup, que antes podia falhar silenciosamente).
 17. Crie **outra** query, abra o arquivo `supabase/migrations/0013_backup_completo.sql`, copie todo o conteúdo e rode também (expande o backup para incluir votos, comprovantes e códigos, não só a estrutura da eleição).
 18. Crie **outra** query, abra o arquivo `supabase/migrations/0014_corrige_deploy_import.sql`, copie todo o conteúdo e rode também (corrige um problema de implantação que podia deixar a restauração desatualizada — rode mesmo se já rodou a 0013).
-19. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
-20. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3.
-21. Vá em **Settings → API** e copie:
+19. Crie **outra** query, abra o arquivo `supabase/migrations/0015_tamanho_codigo_configuravel.sql`, copie todo o conteúdo e rode também (permite ao admin escolher de 4 a 8 dígitos para os códigos).
+20. Crie **outra** query, abra o arquivo `supabase/migrations/0016_contas_usuario.sql`, copie todo o conteúdo e rode também (habilita o modo multiusuário — veja a seção "Modo multiusuário" abaixo).
+21. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
+22. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3 **só se for usar o modo clássico de uma eleição só** (veja abaixo).
+23. Vá em **Settings → API** e copie:
    - **Project URL** (ex: `https://abcdefgh.supabase.co`) — esse é o seu `VITE_SUPABASE_URL`
    - **anon public key** (uma string JWT longa começando com `eyJhbGc...`) — esse é o seu `VITE_SUPABASE_ANON_KEY`
 
@@ -115,13 +120,13 @@ git push -u origin main
    - **Framework Preset**: Vite (deve ser detectado automaticamente)
    - **Build Command**: `npm run build` (padrão)
    - **Output Directory**: `dist` (padrão)
-5. **Antes de clicar em Deploy**, abra a seção **"Environment Variables"** e adicione estas 3 variáveis:
+5. **Antes de clicar em Deploy**, abra a seção **"Environment Variables"** e adicione estas variáveis:
 
    | Name | Value |
    |---|---|
    | `VITE_SUPABASE_URL` | `https://SEUPROJETO.supabase.co` (a URL do Passo 2) |
    | `VITE_SUPABASE_ANON_KEY` | a chave anon copiada no Passo 2 |
-   | `VITE_ELECTION_ID` | o UUID da eleição copiado no Passo 2 |
+   | `VITE_ELECTION_ID` *(opcional)* | o UUID da eleição copiado no Passo 2 — só defina se quiser o modo clássico de uma eleição só fixa; deixe em branco/não defina para usar o modo multiusuário (recomendado para a maioria dos casos) |
 
 6. Clique em **Deploy**. Aguarde 1–2 minutos. Quando terminar, você recebe uma URL pública tipo `https://seu-projeto.vercel.app`.
 
@@ -193,6 +198,22 @@ Para o **Docker local** há também `POSTGRES_PASSWORD`, `JWT_SECRET` e `SUPABAS
 
 - Senha inicial: **`manual123`** (independente da senha de admin)
 - Altere pelo painel admin (aba "Geral" → "Alterar Senha da Votação Manual")
+
+---
+
+## 👥 Modo multiusuário
+
+A partir da migração `0016`, o sistema aceita **contas de usuário reais** (via Supabase Auth): qualquer pessoa pode se cadastrar com e-mail e senha e criar suas próprias eleições, totalmente isoladas das de outros usuários — sem precisar mexer em variável de ambiente nem redeployar nada.
+
+**Como usar:**
+
+1. **Habilite o login por e-mail/senha** no seu projeto Supabase: **Authentication → Providers → Email** (já vem habilitado por padrão na maioria dos projetos novos). Em **Authentication → Settings**, decida se quer exigir confirmação de e-mail antes do primeiro login (recomendado em produção).
+2. Acesse `https://sua-url.vercel.app/#login` — o organizador cria a conta (ou entra, se já tiver uma).
+3. Ao entrar, cai no **Dashboard** (`#dashboard`): botão "Criar Nova Eleição" — dá um nome (e local, opcional) e o sistema gera a eleição já com senha de admin e senha de votação manual **aleatórias**, mostradas **uma única vez** na tela (com botão de copiar). Guarde-as — se perder, dá para gerar novas pelo próprio Dashboard ("Redefinir senha admin"/"Redefinir senha manual"), sem precisar da antiga.
+4. Cada eleição criada já vem com um **link de votação próprio** (`#v/<id-da-eleição>`), mostrado no card da eleição no Dashboard, pronto para copiar e enviar aos eleitores — eles só precisam digitar o código de votação, exatamente como no modo clássico.
+5. Os botões "Abrir Painel Admin" e "Votação Manual" no Dashboard levam direto para o painel daquela eleição específica (usando a senha gerada no passo 3).
+
+**Compatibilidade:** quem já roda o sistema no modo clássico (uma eleição só, com `VITE_ELECTION_ID` definido) **não precisa mudar nada** — continua funcionando exatamente como antes, em paralelo ao modo multiusuário.
 
 ---
 

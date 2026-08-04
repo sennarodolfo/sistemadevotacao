@@ -90,7 +90,8 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       setSessions(election.sessions || [])
       setElectionForm({
         name: election.name,
-        location_name: election.location_name
+        location_name: election.location_name,
+        code_digits: election.code_digits || 4
       })
       setTempElectionName(election.name)
     }
@@ -127,11 +128,16 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     try {
       // Usa o nome digitado (tempElectionName) em vez do que veio de election
       const finalName = (tempElectionName || '').trim() || electionForm.name
-      const updatedForm = { ...electionForm, name: finalName }
-      await callAdmin('admin_update_election', {
+      const codeDigits = Math.min(8, Math.max(4, parseInt(electionForm.code_digits) || 4))
+      const updatedForm = { ...electionForm, name: finalName, code_digits: codeDigits }
+      const result = await callAdmin('admin_update_election', {
         p_name: finalName,
-        p_location_name: updatedForm.location_name
+        p_location_name: updatedForm.location_name,
+        p_code_digits: codeDigits
       })
+      if (!result || result.error) {
+        throw new Error(result?.error === 'invalid_code_digits' ? 'A quantidade de dígitos deve ser entre 4 e 8.' : (result?.error || 'Não foi possível salvar.'))
+      }
       setElectionForm(updatedForm)
       showMessage('Configurações salvas')
       // Atualiza dados sem trocar de tela
@@ -412,7 +418,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       setLastBatch(data.codes || [])
       const generated = data.generated || 0
       if (generated < qty) {
-        showMessage(`Apenas ${generated} de ${qty} código(s) puderam ser gerados (limite de combinações de 4 dígitos disponíveis nesta urna).`, 'error')
+        showMessage(`Apenas ${generated} de ${qty} código(s) puderam ser gerados (limite de combinações de ${electionForm?.code_digits || 4} dígitos disponíveis nesta urna).`, 'error')
       } else {
         showMessage(`${generated} código(s) gerado(s) com sucesso`)
       }
@@ -432,8 +438,8 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     downloadCodesPdf(available, election?.name, `codigos-votacao-disponiveis-${timestampSlug()}`)
   }
 
-  // undefined = ainda não buscou / poucos dígitos; null = 4 dígitos mas não achou; objeto = achou
-  const codeSearchMatch = codeSearch.length === 4
+  // undefined = ainda não tem dígitos suficientes; null = dígitos suficientes mas não achou; objeto = achou
+  const codeSearchMatch = codeSearch.length >= 4
     ? (codeList.find(c => c.code === codeSearch) || null)
     : undefined
 
@@ -525,7 +531,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       setManualLastBatch(data.codes || [])
       const generated = data.generated || 0
       if (generated < qty) {
-        showMessage(`Apenas ${generated} de ${qty} cédula(s) puderam ser geradas (limite de combinações de 4 dígitos disponíveis nesta urna).`, 'error')
+        showMessage(`Apenas ${generated} de ${qty} cédula(s) puderam ser geradas (limite de combinações de ${electionForm?.code_digits || 4} dígitos disponíveis nesta urna).`, 'error')
       } else {
         showMessage(`${generated} cédula(s) gerada(s) com sucesso`)
       }
@@ -545,7 +551,8 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     downloadManualBallotsPdf(available, election, `cedulas-manuais-disponiveis-${timestampSlug()}`)
   }
 
-  const manualCodeSearchMatch = manualCodeSearch.length === 4
+  // undefined = ainda não tem dígitos suficientes; null = dígitos suficientes mas não achou; objeto = achou
+  const manualCodeSearchMatch = manualCodeSearch.length >= 4
     ? (manualCodeList.find(c => c.code === manualCodeSearch) || null)
     : undefined
 
@@ -829,6 +836,36 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
               </div>
             </div>
 
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-slate-700 mb-3">Código de Votação</h3>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Quantidade de dígitos: <b>{electionForm.code_digits || 4}</b>
+                </label>
+                <div className="flex items-center gap-3 max-w-xs">
+                  <input
+                    type="number"
+                    min="4"
+                    max="8"
+                    value={electionForm.code_digits || 4}
+                    onChange={e => setElectionForm({ ...electionForm, code_digits: Math.min(8, Math.max(4, parseInt(e.target.value) || 4)) })}
+                    className="w-20 px-3 py-2 border border-slate-300 rounded-lg"
+                  />
+                  <input
+                    type="range"
+                    min="4"
+                    max="8"
+                    value={electionForm.code_digits || 4}
+                    onChange={e => setElectionForm({ ...electionForm, code_digits: parseInt(e.target.value) })}
+                    className="flex-1"
+                  />
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Vale tanto para os códigos do eleitor quanto para as cédulas manuais (mín. 4, máx. 8). Aplica-se aos <b>próximos códigos gerados</b> — códigos já gerados com outro tamanho continuam funcionando normalmente.
+                </p>
+              </div>
+            </div>
+
             <button type="button" onClick={saveGeneral} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-semibold">
               Salvar Configurações
             </button>
@@ -941,7 +978,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
             <div>
               <h2 className="text-lg font-bold text-slate-800">Códigos de Votação</h2>
               <p className="text-sm text-slate-500 mt-1">
-                Gere códigos numéricos de 4 dígitos para autenticar os eleitores. Cada código libera o voto em todas as sessões desta urna. Ele só fica <b>bloqueado depois de concluir todas as sessões</b> — se o eleitor parar no meio (fechar o navegador, trocar de aparelho), pode digitar o mesmo código novamente para retomar de onde parou.
+                Gere códigos numéricos de {electionForm?.code_digits || 4} dígitos para autenticar os eleitores. Cada código libera o voto em todas as sessões desta urna. Ele só fica <b>bloqueado depois de concluir todas as sessões</b> — se o eleitor parar no meio (fechar o navegador, trocar de aparelho), pode digitar o mesmo código novamente para retomar de onde parou.
               </p>
             </div>
 
@@ -985,7 +1022,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                 </button>
               </div>
               <p className="text-xs text-slate-400 mt-2">
-                Os códigos têm 4 dígitos (0000–9999), portanto o limite é de até 10.000 códigos por urna.
+                Os códigos têm {electionForm?.code_digits || 4} dígitos (limite de até {Math.pow(10, electionForm?.code_digits || 4).toLocaleString('pt-BR')} códigos por urna). Ajuste a quantidade de dígitos na aba "Geral".
               </p>
             </div>
 
@@ -1022,7 +1059,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
             <div className="border-t pt-4">
               <h3 className="font-semibold text-slate-700 mb-2">Gerenciar um código específico</h3>
               <p className="text-xs text-slate-500 mb-2">
-                Digite o código de 4 dígitos para <b>resetar</b> (destrava para uso novamente, sem apagar votos) ou <b>apagar</b> (remove o código e TODOS os votos feitos com ele — use quando o eleitor errou e a votação precisa ser desfeita).
+                Digite o código para <b>resetar</b> (destrava para uso novamente, sem apagar votos) ou <b>apagar</b> (remove o código e TODOS os votos feitos com ele — use quando o eleitor errou e a votação precisa ser desfeita).
               </p>
               <p className="text-xs text-slate-400 mb-2">
                 O código já se destrava sozinho para retomar uma votação incompleta — "resetar" só é necessário para liberar de novo um código que <b>já concluiu todas as sessões</b> (por exemplo, para permitir que outra pessoa vote com o mesmo código).
@@ -1031,11 +1068,11 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                 <input
                   type="text"
                   inputMode="numeric"
-                  maxLength={4}
+                  maxLength={8}
                   value={codeSearch}
-                  onChange={e => setCodeSearch(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                  onChange={e => setCodeSearch(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
                   placeholder="0000"
-                  className="w-24 px-3 py-2 border border-slate-300 rounded-lg text-center font-mono text-lg tracking-widest"
+                  className="w-32 px-3 py-2 border border-slate-300 rounded-lg text-center font-mono text-lg tracking-widest"
                 />
                 {codeSearchMatch === null && (
                   <span className="text-sm text-red-600">Código não encontrado</span>
@@ -1135,7 +1172,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
             <div>
               <h2 className="text-lg font-bold text-slate-800">Cédulas Manuais</h2>
               <p className="text-sm text-slate-500 mt-1">
-                Gere cédulas de papel para votos computados pelo mesário na página <code>#votacaomanual</code>. Cada cédula tem um código numérico de 4 dígitos <b>próprio, diferente dos códigos do eleitor</b>, e o PDF já imprime o código junto com a lista de sessões e candidatos para marcação manual. A cédula só fica bloqueada depois de concluir todas as sessões — se parar no meio, o mesário pode digitar o mesmo código novamente para retomar.
+                Gere cédulas de papel para votos computados pelo mesário na página <code>#votacaomanual</code>. Cada cédula tem um código numérico de {electionForm?.code_digits || 4} dígitos <b>próprio, diferente dos códigos do eleitor</b>, e o PDF já imprime o código junto com a lista de sessões e candidatos para marcação manual. A cédula só fica bloqueada depois de concluir todas as sessões — se parar no meio, o mesário pode digitar o mesmo código novamente para retomar.
               </p>
             </div>
 
@@ -1179,7 +1216,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                 </button>
               </div>
               <p className="text-xs text-slate-400 mt-2">
-                As cédulas compartilham o espaço de 4 dígitos com os códigos do eleitor, mas nunca coincidem: cada número só pertence a um dos dois grupos por vez.
+                As cédulas compartilham o espaço de {electionForm?.code_digits || 4} dígitos com os códigos do eleitor, mas nunca coincidem: cada número só pertence a um dos dois grupos por vez.
               </p>
             </div>
 
@@ -1216,17 +1253,17 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
             <div className="border-t pt-4">
               <h3 className="font-semibold text-slate-700 mb-2">Gerenciar uma cédula específica</h3>
               <p className="text-xs text-slate-500 mb-2">
-                Digite o código de 4 dígitos para <b>resetar</b> (destrava para uso novamente, sem apagar votos) ou <b>apagar</b> (remove a cédula e TODOS os votos feitos com ela).
+                Digite o código para <b>resetar</b> (destrava para uso novamente, sem apagar votos) ou <b>apagar</b> (remove a cédula e TODOS os votos feitos com ela).
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="text"
                   inputMode="numeric"
-                  maxLength={4}
+                  maxLength={8}
                   value={manualCodeSearch}
-                  onChange={e => setManualCodeSearch(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                  onChange={e => setManualCodeSearch(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
                   placeholder="0000"
-                  className="w-24 px-3 py-2 border border-slate-300 rounded-lg text-center font-mono text-lg tracking-widest"
+                  className="w-32 px-3 py-2 border border-slate-300 rounded-lg text-center font-mono text-lg tracking-widest"
                 />
                 {manualCodeSearchMatch === null && (
                   <span className="text-sm text-red-600">Cédula não encontrada</span>
@@ -1471,7 +1508,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
             <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg text-sm text-amber-800">
               <p className="font-semibold mb-1">Como o sistema identifica o eleitor</p>
               <p>
-                O eleitor digita um <b>código numérico de 4 dígitos</b> (gerado na aba "Códigos") ao iniciar a votação.
+                O eleitor digita um <b>código numérico de {electionForm?.code_digits || 4} dígitos</b> (gerado na aba "Códigos") ao iniciar a votação.
                 O código libera o voto em todas as sessões, mas só fica <b>bloqueado ao concluir todas elas</b> — se o
                 eleitor parar no meio (fechar o navegador, trocar de aparelho), pode digitar o mesmo código de novo,
                 em qualquer dispositivo, para retomar exatamente de onde parou. A aba "Auditoria" tem uma "Conferência
