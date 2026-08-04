@@ -27,9 +27,10 @@
 13. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0011_corrige_conferencia_votos.sql` e rode (corrige a Conferência de Votos para voltar a mostrar códigos incompletos).
 14. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0012_corrige_restauracao_backup.sql` e rode (corrige a restauração de backup, que antes podia falhar silenciosamente).
 15. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0013_backup_completo.sql` e rode (expande o backup para incluir votos, comprovantes e códigos).
-16. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
-17. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
-18. **Settings → API** copie:
+16. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0014_corrige_deploy_import.sql` e rode (corrige um problema de implantação que podia deixar a restauração desatualizada — rode mesmo se já rodou a 0013).
+17. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
+18. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID`.
+19. **Settings → API** copie:
    - **Project URL** → `VITE_SUPABASE_URL`
    - **anon public key** → `VITE_SUPABASE_ANON_KEY`
 

@@ -17,7 +17,8 @@ const CODE_ERROR_MESSAGES = {
 const IMPORT_ERROR_MESSAGES = {
   unauthorized: 'Senha expirou - faça login novamente e tente restaurar de novo.',
   empty_backup: 'O arquivo está vazio ou não pôde ser lido.',
-  invalid_backup: 'Este arquivo não parece ser um backup válido (faltam os dados da eleição/sessões).'
+  invalid_backup: 'Este arquivo não parece ser um backup válido (faltam os dados da eleição/sessões).',
+  import_failed: 'Erro no banco de dados ao restaurar'
 }
 
 function timestampSlug() {
@@ -726,7 +727,8 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       // "success", a restauração NÃO aconteceu e precisa aparecer como erro
       // (antes esse caso era reportado como sucesso por engano).
       if (!result || result.error) {
-        throw new Error(IMPORT_ERROR_MESSAGES[result?.error] || result?.error || 'A restauração não foi confirmada pelo servidor.')
+        const detail = result?.detail ? ` (${result.detail})` : ''
+        throw new Error((IMPORT_ERROR_MESSAGES[result?.error] || result?.error || 'A restauração não foi confirmada pelo servidor.') + detail)
       }
       showMessage(
         `Backup restaurado: ${result.sessions_restored} sessão(ões), ${result.candidates_restored} candidato(s), ` +
