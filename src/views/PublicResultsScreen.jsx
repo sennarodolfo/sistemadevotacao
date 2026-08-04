@@ -75,10 +75,12 @@ export default function PublicResultsScreen({ electionName, initialSessionId }) 
       if (chartRef.current) chartRef.current.destroy()
 
       const sorted = [...candidates].sort((a, b) => b.votes - a.votes)
-      const labels = sorted.map(c => c.name)
-      const data = sorted.map(c => c.votes)
-      const percents = sorted.map(c => percentBase > 0 ? ((c.votes / percentBase) * 100).toFixed(1) : '0.0')
-      const colors = sorted.map((_, i) => `hsl(${(i * 360) / Math.max(1, sorted.length)}, 70%, 60%)`)
+      // O voto em branco entra como uma barra a mais (cinza), igual no
+      // painel admin.
+      const labels = [...sorted.map(c => c.name), 'Voto em Branco']
+      const data = [...sorted.map(c => c.votes), blank]
+      const percents = [...sorted.map(c => percentBase > 0 ? ((c.votes / percentBase) * 100).toFixed(1) : '0.0'), percentBase > 0 ? ((blank / percentBase) * 100).toFixed(1) : '0.0']
+      const colors = [...sorted.map((_, i) => `hsl(${(i * 360) / Math.max(1, sorted.length)}, 70%, 60%)`), '#94a3b8']
 
       const dataLabelPlugin = {
         id: 'publicDataLabels',
@@ -182,7 +184,7 @@ export default function PublicResultsScreen({ electionName, initialSessionId }) 
               </p>
             )}
 
-            <div className="bg-slate-800 rounded-xl p-6" style={{ height: `${Math.max(320, candidates.length * 72)}px` }}>
+            <div className="bg-slate-800 rounded-xl p-6" style={{ height: `${Math.max(320, (candidates.length + 1) * 72)}px` }}>
               <canvas ref={canvasRef}></canvas>
             </div>
           </>

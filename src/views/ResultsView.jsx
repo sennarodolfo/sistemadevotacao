@@ -37,9 +37,12 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
     async function draw() {
       const { default: Chart } = await import('chart.js/auto')
       const colors = candidates.map((_, i) => `hsl(${(i*360)/Math.max(1,candidates.length)}, 70%, 55%)`)
-      const labels = candidates.map(c => c.name)
-      const data = candidates.map(c => c.votes)
-      const percents = candidates.map(c => pctOfBase(c.votes, 1))
+      // O voto em branco entra como uma barra a mais (cinza), igual já
+      // acontece no gráfico de pizza e na tabela.
+      const labels = [...candidates.map(c => c.name), 'Voto em Branco']
+      const data = [...candidates.map(c => c.votes), blank]
+      const percents = [...candidates.map(c => pctOfBase(c.votes, 1)), pctOfBase(blank, 1)]
+      const barColors = [...colors, '#94a3b8']
 
       // Plugin local (sem dependência externa) que escreve "N votos (X%)"
       // logo após a ponta de cada barra horizontal. O percentual usa o
@@ -65,7 +68,7 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
       if (barRef.current) {
         barChartRef.current = new Chart(barRef.current, {
           type: 'bar',
-          data: { labels, datasets: [{ label: 'Votos', data, backgroundColor: colors, borderRadius: 6 }] },
+          data: { labels, datasets: [{ label: 'Votos', data, backgroundColor: barColors, borderRadius: 6 }] },
           options: {
             indexAxis: 'y',
             responsive: true,
