@@ -24,7 +24,19 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
   const registeredVoters = session?.registered_voters ?? null
   const usingRegistered = !!(registeredVoters && registeredVoters > 0)
   const percentBase = usingRegistered ? registeredVoters : totalAll
+  // Limiar de maioria absoluta (50% + 1) - exibido só como REFERÊNCIA
+  // informativa quando há nº de membros presentes; NÃO é mais o que
+  // decide quem está marcado como "Eleito" (ver electedIds abaixo).
   const electedThreshold = usingRegistered ? Math.floor(registeredVoters / 2) + 1 : null
+
+  // ===== Eleitos = os N mais votados, onde N é o número de vagas da
+  // sessão (votes_required) - a mesma quantidade que o eleitor marca na
+  // cédula. Ex: "vote em 5" -> os 5 candidatos com mais votos ficam
+  // marcados como eleitos, sempre exatamente 5 (não depende de bater
+  // percentual algum).
+  const seats = session?.votes_required || 0
+  const sortedCandidates = [...candidates].sort((a, b) => b.votes - a.votes)
+  const electedIds = new Set(sortedCandidates.slice(0, seats).map(c => c.id))
 
   function pctOfBase(votes, digits = 2) {
     return percentBase > 0 ? ((votes / percentBase) * 100).toFixed(digits) : (0).toFixed(digits)
@@ -112,21 +124,22 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
   function exportExcel() {
     if (!session) return
     const rows = [
-      ['Posição', 'Candidato', 'Votos', '% Total', ...(usingRegistered ? ['Eleito (50%+1)'] : [])],
-      ...candidates.sort((a, b) => b.votes - a.votes).map((c, i) => [
+      ['Posição', 'Candidato', 'Votos', '% Total', 'Eleito'],
+      ...sortedCandidates.map((c, i) => [
         i + 1,
         c.name,
         c.votes,
         pctOfBase(c.votes) + '%',
-        ...(usingRegistered ? [c.votes >= electedThreshold ? 'Sim' : 'Não'] : [])
+        electedIds.has(c.id) ? 'Sim' : 'Não'
       ]),
-      ['-', 'Voto em Branco', blank, pctOfBase(blank) + '%', ...(usingRegistered ? ['-'] : [])]
+      ['-', 'Voto em Branco', blank, pctOfBase(blank) + '%', '-']
     ]
+    rows.push([])
+    rows.push(['Vagas (votos obrigatórios)', seats])
     if (usingRegistered) {
-      rows.push([])
       rows.push(['Membros presentes', registeredVoters])
       rows.push(['Membros votantes', totalVoters])
-      rows.push(['Limiar de eleição (50% + 1)', electedThreshold])
+      rows.push(['Referência - maioria absoluta (50% + 1)', electedThreshold])
     }
     const ws = XLSX.utils.aoa_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -154,8 +167,8 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
 
     doc.setFontSize(10)
     const summaryLine = usingRegistered
-      ? `Membros presentes: ${registeredVoters} | Membros votantes: ${totalVoters} | Votos válidos: ${totalValid} | Brancos: ${blank}`
-      : `Total de membros: ${totalVoters} | Votos válidos: ${totalValid} | Brancos: ${blank}`
+      ? `Membros presentes: ${registeredVoters} | Membros votantes: ${totalVoters} | Votos válidos: ${totalValid} | Brancos: ${blank} | Vagas: ${seats}`
+      : `Total de membros: ${totalVoters} | Votos válidos: ${totalValid} | Brancos: ${blank} | Vagas: ${seats}`
     doc.text(summaryLine, margin, y)
     y += 10
 
@@ -166,19 +179,19 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
     doc.text('Candidato', margin + 15, y)
     doc.text('Votos', margin + 100, y)
     doc.text('% Total', margin + 130, y)
-    if (usingRegistered) doc.text('Eleito', margin + 165, y)
+    doc.text('Eleito', margin + 165, y)
     y += 5
     doc.setDrawColor(200)
     doc.line(margin, y, 195, y)
     y += 5
 
     doc.setFont('helvetica', 'normal')
-    candidates.sort((a, b) => b.votes - a.votes).forEach((c, i) => {
+    sortedCandidates.forEach((c, i) => {
       doc.text(`${i + 1}º`, margin, y)
       doc.text(c.name, margin + 15, y)
       doc.text(String(c.votes), margin + 100, y)
       doc.text(pctOfBase(c.votes) + '%', margin + 130, y)
-      if (usingRegistered) doc.text(c.votes >= electedThreshold ? 'Sim' : 'Não', margin + 165, y)
+      doc.text(electedIds.has(c.id) ? 'Sim' : 'Não', margin + 165, y)
       y += 6
     })
     doc.text('-', margin, y)
@@ -186,12 +199,13 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
     doc.text(String(blank), margin + 100, y)
     doc.text(pctOfBase(blank) + '%', margin + 130, y)
 
-    if (usingRegistered) {
-      y += 10
-      doc.setFont('helvetica', 'italic')
-      doc.setFontSize(8)
-      doc.text(`Percentual calculado sobre os ${registeredVoters} membros presentes. Eleito com 50% + 1 = ${electedThreshold} voto(s).`, margin, y)
-    }
+    y += 10
+    doc.setFont('helvetica', 'italic')
+    doc.setFontSize(8)
+    const noteLine = usingRegistered
+      ? `Eleitos = os ${seats} mais votados (vagas da sessão). Percentual sobre os ${registeredVoters} membros presentes. Referência de maioria absoluta (50% + 1) = ${electedThreshold} voto(s).`
+      : `Eleitos = os ${seats} mais votados (vagas da sessão).`
+    doc.text(noteLine, margin, y)
 
     // Imagens dos gráficos
     if (barChartRef.current) {
@@ -274,11 +288,10 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
         </div>
       )}
 
-      {usingRegistered && (
-        <p className="text-xs text-slate-500 mb-3">
-          Percentual calculado sobre os <b>{registeredVoters} membros presentes</b>. Eleito com 50% + 1 = <b>{electedThreshold} voto(s)</b>.
-        </p>
-      )}
+      <p className="text-xs text-slate-500 mb-3">
+        <b>{seats} vaga(s)</b> nesta sessão — os {seats} candidato(s) mais votados ficam marcados como "Eleito".
+        {usingRegistered && <> Percentual calculado sobre os <b>{registeredVoters} membros presentes</b> (referência de maioria absoluta: 50% + 1 = <b>{electedThreshold} voto(s)</b>).</>}
+      </p>
 
       <div className="overflow-x-auto mb-6">
         <table className="w-full text-sm">
@@ -288,25 +301,23 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
               <th className="p-3 font-semibold">Candidato</th>
               <th className="p-3 font-semibold text-right">Votos</th>
               <th className="p-3 font-semibold text-right">% Total</th>
-              {usingRegistered && <th className="p-3 font-semibold text-center">Eleito</th>}
+              <th className="p-3 font-semibold text-center">Eleito</th>
             </tr>
           </thead>
           <tbody>
-            {[...candidates].sort((a, b) => b.votes - a.votes).map((c, i) => {
-              const elected = usingRegistered && c.votes >= electedThreshold
+            {sortedCandidates.map((c, i) => {
+              const elected = electedIds.has(c.id)
               return (
                 <tr key={c.id} className={`border-b hover:bg-slate-50 ${elected ? 'bg-emerald-50/50' : ''}`}>
                   <td className="p-3">{i + 1}º</td>
                   <td className="p-3 font-medium">{c.name}</td>
                   <td className="p-3 text-right font-mono">{c.votes}</td>
                   <td className="p-3 text-right font-mono font-semibold">{pctOfBase(c.votes)}%</td>
-                  {usingRegistered && (
-                    <td className="p-3 text-center">
-                      {elected && (
-                        <span className="bg-emerald-100 text-emerald-700 text-xs font-semibold px-2 py-1 rounded-full">✅ Eleito</span>
-                      )}
-                    </td>
-                  )}
+                  <td className="p-3 text-center">
+                    {elected && (
+                      <span className="bg-emerald-100 text-emerald-700 text-xs font-semibold px-2 py-1 rounded-full">✅ Eleito</span>
+                    )}
+                  </td>
                 </tr>
               )
             })}
@@ -315,7 +326,7 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
               <td className="p-3 font-medium italic">Voto em Branco</td>
               <td className="p-3 text-right font-mono">{blank}</td>
               <td className="p-3 text-right font-mono">{pctOfBase(blank)}%</td>
-              {usingRegistered && <td className="p-3"></td>}
+              <td className="p-3"></td>
             </tr>
           </tbody>
         </table>

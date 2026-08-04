@@ -180,7 +180,7 @@ export default function PublicResultsScreen({ electionName, initialSessionId }) 
 
             {usingRegistered && (
               <p className="text-center text-slate-400 text-sm mb-6">
-                Percentual sobre os <b className="text-slate-200">{registeredVoters} membros presentes</b> · Eleito com 50% + 1 = <b className="text-slate-200">{electedThreshold} voto(s)</b>
+                <b className="text-slate-200">{session.votes_required} vaga(s)</b> nesta sessão · Percentual sobre os <b className="text-slate-200">{registeredVoters} membros presentes</b> · Referência de maioria absoluta (50% + 1) = <b className="text-slate-200">{electedThreshold} voto(s)</b>
               </p>
             )}
 
