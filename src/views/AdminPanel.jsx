@@ -14,6 +14,12 @@ const CODE_ERROR_MESSAGES = {
   quantity_too_large: 'Quantidade máxima de 5000 códigos por geração.'
 }
 
+const IMPORT_ERROR_MESSAGES = {
+  unauthorized: 'Senha expirou - faça login novamente e tente restaurar de novo.',
+  empty_backup: 'O arquivo está vazio ou não pôde ser lido.',
+  invalid_backup: 'Este arquivo não parece ser um backup válido (faltam os dados da eleição/sessões).'
+}
+
 function timestampSlug() {
   return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
 }
@@ -645,6 +651,9 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     try {
       showMessage('Gerando backup...')
       const el = await callAdmin('admin_export_election', {})
+      if (!el || el.error) {
+        throw new Error(el?.error || 'Não foi possível gerar o backup.')
+      }
       const blob = new Blob([JSON.stringify(el, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -655,7 +664,8 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      showMessage('Backup exportado com sucesso')
+      const sessionCount = (el.sessions || []).length
+      showMessage(`Backup exportado: ${sessionCount} sessão(ões).`)
     } catch (e) { showMessage('Erro ao exportar: ' + e.message, 'error') }
   }
 
@@ -668,14 +678,30 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     if (!file) return
     try {
       const text = await file.text()
-      const data = JSON.parse(text)
-      if (!confirm(`Restaurar backup "${file.name}"? Os dados atuais serão substituídos. Continuar?`)) {
+      let data
+      try {
+        data = JSON.parse(text)
+      } catch (_) {
+        throw new Error('O arquivo selecionado não é um JSON válido.')
+      }
+      // Checagem rápida da estrutura ANTES de mandar pro banco, pra dar um
+      // erro claro em vez de uma restauração "vazia" silenciosa.
+      if (!data || typeof data !== 'object' || (!data.election && !data.sessions)) {
+        throw new Error('Este arquivo não parece ser um backup válido deste sistema (faltam os dados da eleição/sessões).')
+      }
+      if (!confirm(`Restaurar backup "${file.name}"? As sessões e candidatos atuais serão substituídos pelos do backup (${(data.sessions || []).length} sessão(ões) no arquivo). Continuar?`)) {
         if (fileInputRef.current) fileInputRef.current.value = ''
         return
       }
       showMessage('Restaurando...')
-      await callAdmin('admin_import_election', { p_data: data })
-      showMessage('Backup restaurado com sucesso')
+      const result = await callAdmin('admin_import_election', { p_data: data })
+      // admin_import_election agora retorna um resumo - se vier vazio/sem
+      // "success", a restauração NÃO aconteceu e precisa aparecer como erro
+      // (antes esse caso era reportado como sucesso por engano).
+      if (!result || result.error) {
+        throw new Error(IMPORT_ERROR_MESSAGES[result?.error] || result?.error || 'A restauração não foi confirmada pelo servidor.')
+      }
+      showMessage(`Backup restaurado: ${result.sessions_restored} sessão(ões), ${result.candidates_restored} candidato(s).`)
       if (fileInputRef.current) fileInputRef.current.value = ''
       await refreshData()
     } catch (e) {

@@ -49,6 +49,7 @@ votacao-supabase/
 │   ├── migrations/0009_conferencia_votos.sql  # Conferência de votos (códigos incompletos)
 │   ├── migrations/0010_bloqueio_ao_concluir.sql  # Código só bloqueia ao concluir todas as sessões
 │   ├── migrations/0011_corrige_conferencia_votos.sql  # Corrige conferência p/ códigos incompletos
+│   ├── migrations/0012_corrige_restauracao_backup.sql  # Corrige restauração de backup
 │   └── seed/seed.sql             # Dados iniciais
 ├── index.html
 ├── package.json
@@ -94,9 +95,10 @@ git push -u origin main
 13. Crie **outra** query, abra o arquivo `supabase/migrations/0009_conferencia_votos.sql`, copie todo o conteúdo e rode também (permite conferir quais códigos não votaram em todas as sessões).
 14. Crie **outra** query, abra o arquivo `supabase/migrations/0010_bloqueio_ao_concluir.sql`, copie todo o conteúdo e rode também (o código só bloqueia ao concluir todas as sessões, permitindo retomar uma votação incompleta).
 15. Crie **outra** query, abra o arquivo `supabase/migrations/0011_corrige_conferencia_votos.sql`, copie todo o conteúdo e rode também (corrige a Conferência de Votos para voltar a mostrar códigos incompletos).
-16. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
-17. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3.
-18. Vá em **Settings → API** e copie:
+16. Crie **outra** query, abra o arquivo `supabase/migrations/0012_corrige_restauracao_backup.sql`, copie todo o conteúdo e rode também (corrige a restauração de backup, que antes podia falhar silenciosamente).
+17. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
+18. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3.
+19. Vá em **Settings → API** e copie:
    - **Project URL** (ex: `https://abcdefgh.supabase.co`) — esse é o seu `VITE_SUPABASE_URL`
    - **anon public key** (uma string JWT longa começando com `eyJhbGc...`) — esse é o seu `VITE_SUPABASE_ANON_KEY`
 
