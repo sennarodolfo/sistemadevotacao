@@ -192,6 +192,24 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     } catch (e) { showMessage('Erro: ' + e.message, 'error') }
   }
 
+  // Depois de restaurar um backup completo (sessões, votos, comprovantes
+  // e códigos), os dados já carregados em várias abas ficam desatualizados
+  // de uma vez só - atualiza tudo sem precisar trocar de aba manualmente.
+  async function refreshAllAfterRestore() {
+    await refreshData()
+    try {
+      const resultsData = await callAdmin('admin_get_results', {})
+      setResults(resultsData || [])
+      if (resultsData && resultsData.length > 0) setResultsSessionId(resultsData[0].session_id)
+    } catch (_) { /* silencioso */ }
+    try {
+      const receiptsData = await callAdmin('admin_list_receipts', {})
+      setReceipts(receiptsData || [])
+    } catch (_) { /* silencioso */ }
+    await refreshCodes()
+    await refreshManualCodes()
+  }
+
   function exportAuditPDF() {
     if (receipts.length === 0) return showMessage('Nenhum comprovante para exportar', 'error')
 
@@ -665,7 +683,9 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       const sessionCount = (el.sessions || []).length
-      showMessage(`Backup exportado: ${sessionCount} sessão(ões).`)
+      const voteCount = (el.votes || []).length
+      const codeCount = (el.voter_codes || []).length + (el.manual_ballot_codes || []).length
+      showMessage(`Backup exportado: ${sessionCount} sessão(ões), ${voteCount} voto(s), ${codeCount} código(s).`)
     } catch (e) { showMessage('Erro ao exportar: ' + e.message, 'error') }
   }
 
@@ -689,7 +709,14 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       if (!data || typeof data !== 'object' || (!data.election && !data.sessions)) {
         throw new Error('Este arquivo não parece ser um backup válido deste sistema (faltam os dados da eleição/sessões).')
       }
-      if (!confirm(`Restaurar backup "${file.name}"? As sessões e candidatos atuais serão substituídos pelos do backup (${(data.sessions || []).length} sessão(ões) no arquivo). Continuar?`)) {
+      const summary = [
+        `${(data.sessions || []).length} sessão(ões)`,
+        `${(data.votes || []).length} voto(s)`,
+        `${(data.election_receipts || []).length} comprovante(s)`,
+        `${(data.voter_codes || []).length} código(s) de eleitor`,
+        `${(data.manual_ballot_codes || []).length} cédula(s) manual(is)`
+      ].join(', ')
+      if (!confirm(`Restaurar backup "${file.name}"? TODOS os dados atuais da votação (sessões, candidatos, votos, comprovantes e códigos) serão substituídos pelos do arquivo: ${summary}. Esta ação não pode ser desfeita. Continuar?`)) {
         if (fileInputRef.current) fileInputRef.current.value = ''
         return
       }
@@ -701,9 +728,13 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       if (!result || result.error) {
         throw new Error(IMPORT_ERROR_MESSAGES[result?.error] || result?.error || 'A restauração não foi confirmada pelo servidor.')
       }
-      showMessage(`Backup restaurado: ${result.sessions_restored} sessão(ões), ${result.candidates_restored} candidato(s).`)
+      showMessage(
+        `Backup restaurado: ${result.sessions_restored} sessão(ões), ${result.candidates_restored} candidato(s), ` +
+        `${result.votes_restored} voto(s), ${result.completions_restored} conclusão(ões), ${result.receipts_restored} comprovante(s), ` +
+        `${result.voter_codes_restored} código(s) de eleitor, ${result.manual_codes_restored} cédula(s) manual(is).`
+      )
       if (fileInputRef.current) fileInputRef.current.value = ''
-      await refreshData()
+      await refreshAllAfterRestore()
     } catch (e) {
       showMessage('Erro ao restaurar: ' + e.message, 'error')
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -831,7 +862,12 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
 
             <div className="border-t pt-4">
               <h3 className="font-semibold text-slate-700 mb-2">Backup e Restauração</h3>
-              <p className="text-xs text-slate-500 mb-2">Exporte um arquivo JSON com todos os dados da eleição ou restaure um backup anterior.</p>
+              <p className="text-xs text-slate-500 mb-2">
+                Exporte um arquivo JSON com <b>toda a base da votação</b>: sessões, candidatos, votos individuais, comprovantes, auditoria e códigos (do eleitor e cédulas manuais, com seus status de uso) — ou restaure um backup anterior para voltar exatamente a esse estado.
+              </p>
+              <p className="text-xs text-amber-600 mb-2">
+                ⚠️ O arquivo gerado contém dados sensíveis da votação (votos, códigos). Guarde-o com o mesmo cuidado que a senha do admin — não compartilhe publicamente.
+              </p>
               <div className="flex gap-2 flex-wrap">
                 <button type="button" onClick={exportBackup} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2">
                   <Icon name="download" className="w-4 h-4" /> Exportar tudo (JSON)
