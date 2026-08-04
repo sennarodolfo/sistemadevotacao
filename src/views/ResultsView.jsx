@@ -25,19 +25,19 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
   const registeredVoters = session?.registered_voters ?? null
   const usingRegistered = !!(registeredVoters && registeredVoters > 0)
   const percentBase = usingRegistered ? registeredVoters : totalAll
-  // Limiar de maioria absoluta (50% + 1) - exibido só como REFERÊNCIA
-  // informativa quando há nº de membros presentes; NÃO é mais o que
-  // decide quem está marcado como "Eleito" (ver electedIds abaixo).
-  const electedThreshold = usingRegistered ? Math.floor(registeredVoters / 2) + 1 : null
 
-  // ===== Eleitos = os N mais votados, onde N é o número de vagas da
-  // sessão (votes_required) - a mesma quantidade que o eleitor marca na
-  // cédula. Ex: "vote em 5" -> os 5 candidatos com mais votos ficam
-  // marcados como eleitos, sempre exatamente 5 (não depende de bater
-  // percentual algum).
+  // ===== "Eleito": precisa de DUAS condições ao mesmo tempo:
+  //   1) Atingir maioria absoluta (50% + 1) sobre os membros presentes.
+  //   2) Estar entre os mais votados, respeitando o limite de vagas da
+  //      sessão (votos obrigatórios) - se mais candidatos do que vagas
+  //      baterem a maioria, só os N mais votados entre eles (N = vagas)
+  //      ficam marcados como eleitos; os demais, mesmo tendo maioria,
+  //      não entram porque não há vaga.
   const seats = session?.votes_required || 0
+  const electedThreshold = usingRegistered ? Math.floor(registeredVoters / 2) + 1 : null
   const sortedCandidates = [...candidates].sort((a, b) => b.votes - a.votes)
-  const electedIds = new Set(sortedCandidates.slice(0, seats).map(c => c.id))
+  const qualifiedCandidates = usingRegistered ? sortedCandidates.filter(c => c.votes >= electedThreshold) : []
+  const electedIds = new Set(qualifiedCandidates.slice(0, seats).map(c => c.id))
 
   function pctOfBase(votes, digits = 2) {
     return percentBase > 0 ? ((votes / percentBase) * 100).toFixed(digits) : (0).toFixed(digits)
@@ -125,22 +125,23 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
   function exportExcel() {
     if (!session) return
     const rows = [
-      ['Posição', 'Candidato', 'Votos', '% Total', 'Eleito'],
+      ['Posição', 'Candidato', 'Votos', '% Total', ...(usingRegistered ? ['Eleito (50%+1)'] : [])],
       ...sortedCandidates.map((c, i) => [
         i + 1,
         c.name,
         c.votes,
         pctOfBase(c.votes) + '%',
-        electedIds.has(c.id) ? 'Sim' : 'Não'
+        ...(usingRegistered ? [electedIds.has(c.id) ? 'Sim' : 'Não'] : [])
       ]),
-      ['-', 'Voto em Branco', blank, pctOfBase(blank) + '%', '-']
+      ['-', 'Voto em Branco', blank, pctOfBase(blank) + '%', ...(usingRegistered ? ['-'] : [])]
     ]
-    rows.push([])
-    rows.push(['Vagas (votos obrigatórios)', seats])
     if (usingRegistered) {
+      rows.push([])
+      rows.push(['Vagas (votos obrigatórios)', seats])
       rows.push(['Membros presentes', registeredVoters])
       rows.push(['Membros votantes', totalVoters])
-      rows.push(['Referência - maioria absoluta (50% + 1)', electedThreshold])
+      rows.push(['Maioria absoluta (50% + 1)', electedThreshold])
+      rows.push(['Candidatos que atingiram maioria', qualifiedCandidates.length])
     }
     const ws = XLSX.utils.aoa_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -168,8 +169,8 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
 
     doc.setFontSize(10)
     const summaryLine = usingRegistered
-      ? `Membros presentes: ${registeredVoters} | Membros votantes: ${totalVoters} | Votos válidos: ${totalValid} | Brancos: ${blank} | Vagas: ${seats}`
-      : `Total de membros: ${totalVoters} | Votos válidos: ${totalValid} | Brancos: ${blank} | Vagas: ${seats}`
+      ? `Membros presentes: ${registeredVoters} | Membros votantes: ${totalVoters} | Votos válidos: ${totalValid} | Brancos: ${blank}`
+      : `Total de membros: ${totalVoters} | Votos válidos: ${totalValid} | Brancos: ${blank}`
     doc.text(summaryLine, margin, y)
     y += 10
 
@@ -180,7 +181,7 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
     doc.text('Candidato', margin + 15, y)
     doc.text('Votos', margin + 100, y)
     doc.text('% Total', margin + 130, y)
-    doc.text('Eleito', margin + 165, y)
+    if (usingRegistered) doc.text('Eleito', margin + 165, y)
     y += 5
     doc.setDrawColor(200)
     doc.line(margin, y, 195, y)
@@ -192,7 +193,7 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
       doc.text(c.name, margin + 15, y)
       doc.text(String(c.votes), margin + 100, y)
       doc.text(pctOfBase(c.votes) + '%', margin + 130, y)
-      doc.text(electedIds.has(c.id) ? 'Sim' : 'Não', margin + 165, y)
+      if (usingRegistered) doc.text(electedIds.has(c.id) ? 'Sim' : 'Não', margin + 165, y)
       y += 6
     })
     doc.text('-', margin, y)
@@ -200,13 +201,12 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
     doc.text(String(blank), margin + 100, y)
     doc.text(pctOfBase(blank) + '%', margin + 130, y)
 
-    y += 10
-    doc.setFont('helvetica', 'italic')
-    doc.setFontSize(8)
-    const noteLine = usingRegistered
-      ? `Eleitos = os ${seats} mais votados (vagas da sessão). Percentual sobre os ${registeredVoters} membros presentes. Referência de maioria absoluta (50% + 1) = ${electedThreshold} voto(s).`
-      : `Eleitos = os ${seats} mais votados (vagas da sessão).`
-    doc.text(noteLine, margin, y)
+    if (usingRegistered) {
+      y += 10
+      doc.setFont('helvetica', 'italic')
+      doc.setFontSize(8)
+      doc.text(`Eleito = maioria absoluta sobre os ${registeredVoters} membros presentes (50% + 1 = ${electedThreshold} voto(s)) E entre os mais votados dentro do limite de ${seats} vaga(s).`, margin, y)
+    }
 
     // Imagens dos gráficos
     if (barChartRef.current) {
@@ -289,10 +289,18 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
         </div>
       )}
 
-      <p className="text-xs text-slate-500 mb-3">
-        <b>{seats} vaga(s)</b> nesta sessão — os {seats} candidato(s) mais votados ficam marcados como "Eleito".
-        {usingRegistered && <> Percentual calculado sobre os <b>{registeredVoters} membros presentes</b> (referência de maioria absoluta: 50% + 1 = <b>{electedThreshold} voto(s)</b>).</>}
-      </p>
+      {usingRegistered ? (
+        <p className="text-xs text-slate-500 mb-3">
+          <b>Eleito</b> = atinge maioria absoluta sobre os <b>{registeredVoters} membros presentes</b> (50% + 1 = <b>{electedThreshold} voto(s)</b>) <b>e</b> está entre os mais votados dentro do limite de <b>{seats} vaga(s)</b> desta sessão.
+          {qualifiedCandidates.length > seats && (
+            <> {qualifiedCandidates.length - seats} candidato(s) atingiram a maioria mas ficaram fora por excederem o número de vagas.</>
+          )}
+        </p>
+      ) : (
+        <p className="text-xs text-slate-500 mb-3">
+          Informe o número de "membros presentes" na aba Sessões para calcular quem atinge maioria absoluta (50% + 1) e marcar como "Eleito".
+        </p>
+      )}
 
       <div className="overflow-x-auto mb-6">
         <table className="w-full text-sm">
@@ -302,7 +310,7 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
               <th className="p-3 font-semibold">Candidato</th>
               <th className="p-3 font-semibold text-right">Votos</th>
               <th className="p-3 font-semibold text-right">% Total</th>
-              <th className="p-3 font-semibold text-center">Eleito</th>
+              {usingRegistered && <th className="p-3 font-semibold text-center">Eleito</th>}
             </tr>
           </thead>
           <tbody>
@@ -314,11 +322,13 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
                   <td className="p-3 font-medium">{c.name}</td>
                   <td className="p-3 text-right font-mono">{c.votes}</td>
                   <td className="p-3 text-right font-mono font-semibold">{pctOfBase(c.votes)}%</td>
-                  <td className="p-3 text-center">
-                    {elected && (
-                      <span className="bg-emerald-100 text-emerald-700 text-xs font-semibold px-2 py-1 rounded-full">✅ Eleito</span>
-                    )}
-                  </td>
+                  {usingRegistered && (
+                    <td className="p-3 text-center">
+                      {elected && (
+                        <span className="bg-emerald-100 text-emerald-700 text-xs font-semibold px-2 py-1 rounded-full">✅ Eleito</span>
+                      )}
+                    </td>
+                  )}
                 </tr>
               )
             })}
@@ -327,7 +337,7 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
               <td className="p-3 font-medium italic">Voto em Branco</td>
               <td className="p-3 text-right font-mono">{blank}</td>
               <td className="p-3 text-right font-mono">{pctOfBase(blank)}%</td>
-              <td className="p-3"></td>
+              {usingRegistered && <td className="p-3"></td>}
             </tr>
           </tbody>
         </table>
