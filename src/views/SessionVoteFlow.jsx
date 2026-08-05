@@ -1,25 +1,23 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../components/Icon'
 import { supabase, setElectionId } from '../lib/supabase'
-import { setVoterToken, getVoterToken, clearVoterToken } from '../lib/api'
+import { getVoterToken, clearVoterToken } from '../lib/api'
 import CodeEntryScreen from './CodeEntryScreen'
 import VotingScreen from './VotingScreen'
 import SessionDoneScreen from './SessionDoneScreen'
 import SessionReceiptScreen from './SessionReceiptScreen'
-import FinalScreen from './FinalScreen'
 
 // ============================================================
 // Fluxo de votação a partir do LINK PRÓPRIO de uma sessão
 // (ex: https://seuprojeto.vercel.app/nome-da-sessao).
 //
-// Diferente do fluxo clássico (App.jsx), esta tela NUNCA reaproveita
-// um voter_token guardado no navegador: cada janela aberta com o link
-// de uma sessão SEMPRE exige que o código seja digitado de novo. Como
-// o token é determinístico (derivado do código, ver migração 0002/0010),
-// digitar o mesmo código em janelas diferentes identifica o MESMO
-// eleitor - e o banco (unique voter_token+session_id) garante que ele
-// só pode votar UMA VEZ nesta sessão especificamente, mesmo que o
-// código continue válido para outras sessões em outras janelas/links.
+// Cada sessão é INDEPENDENTE: tem seu próprio código de acesso, seu
+// próprio comprovante (código VS-...) e sua própria tela de encerramento
+// - nada aqui faz referência a outras sessões da eleição. Esta janela
+// NUNCA reaproveita um voter_token guardado no navegador: sempre exige
+// que o código seja digitado de novo. O banco garante (unique
+// voter_token+session_id) que o mesmo código só pode ser usado uma
+// única vez nesta sessão.
 // ============================================================
 
 const RESOLVE_ERROR_MESSAGES = {
@@ -54,11 +52,9 @@ function LoadingBlock() {
 
 export default function SessionVoteFlow({ slug }) {
   const [phase, setPhase] = useState('resolving')
-  const [electionMeta, setElectionMeta] = useState(null) // { id, name, code_digits, totalActiveSessions }
+  const [electionMeta, setElectionMeta] = useState(null) // { id, name, code_digits }
   const [session, setSession] = useState(null)
   const [lastResult, setLastResult] = useState(null)
-  const [isLastPending, setIsLastPending] = useState(false)
-  const [finalReceipt, setFinalReceipt] = useState(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -67,8 +63,7 @@ export default function SessionVoteFlow({ slug }) {
   }, [slug])
 
   // "Modo urna" para esta janela: evita sair sem querer pelo botão
-  // Voltar do navegador e avisa antes de fechar/atualizar a aba,
-  // igual ao fluxo clássico (ver App.jsx).
+  // Voltar do navegador e avisa antes de fechar/atualizar a aba.
   useEffect(() => {
     if (!['code', 'voting', 'done', 'sessionReceipt'].includes(phase)) return
     function trapBack() { window.history.pushState(null, '', window.location.href) }
@@ -96,12 +91,10 @@ export default function SessionVoteFlow({ slug }) {
       setElectionMeta({
         id: data.election_id,
         name: data.election_name,
-        code_digits: data.code_digits,
-        totalActiveSessions: data.total_active_sessions
+        code_digits: data.code_digits
       })
       setSession(data.session)
-      // Sempre exige o código de novo nesta janela - nunca reaproveita
-      // um token de uma sessão votada em outra aba/link.
+      // Sempre exige o código de novo nesta janela.
       clearVoterToken()
       setPhase('code')
     } catch (e) {
@@ -110,10 +103,9 @@ export default function SessionVoteFlow({ slug }) {
     }
   }
 
-  // Depois que o código é validado, confere se ESTA sessão específica
-  // já foi votada com ele (o eleitor pode ter recarregado a página ou
-  // reaberto o link por engano) - se sim, mostra o resultado já
-  // registrado em vez de deixar votar de novo.
+  // Depois que o código é validado, confere se ESTA sessão já foi
+  // votada com ele (recarregou a página, reabriu o link) - se sim,
+  // mostra direto o comprovante já emitido em vez de deixar votar de novo.
   async function handleCodeValidated() {
     setError('')
     try {
@@ -123,17 +115,14 @@ export default function SessionVoteFlow({ slug }) {
         p_voter_token: token
       })
       if (statusErr) throw statusErr
-      const completed = status?.completed || []
-      const already = completed.find(c => c.session_id === session.id)
-      const allDone = electionMeta.totalActiveSessions != null && completed.length >= electionMeta.totalActiveSessions
+      const already = (status?.completed || []).find(c => c.session_id === session.id)
       if (already) {
         setLastResult({
           voted_candidates: already.voted_candidates,
           blank_count: already.blank_count,
           session_receipt: already.receipt_code
         })
-        setIsLastPending(allDone)
-        setPhase('done')
+        setPhase('sessionReceipt')
         return
       }
       setPhase('voting')
@@ -143,44 +132,9 @@ export default function SessionVoteFlow({ slug }) {
     }
   }
 
-  async function handleVoted({ result }) {
+  function handleVoted({ result }) {
     setLastResult(result)
-    try {
-      const token = getVoterToken()
-      const { data: status } = await supabase.rpc('get_voter_status', {
-        p_election_id: electionMeta.id,
-        p_voter_token: token
-      })
-      const completedCount = (status?.completed || []).length
-      setIsLastPending(electionMeta.totalActiveSessions != null && completedCount >= electionMeta.totalActiveSessions)
-    } catch (_) {
-      setIsLastPending(false)
-    }
     setPhase('done')
-  }
-
-  async function handleFinalize() {
-    setError('')
-    try {
-      const token = getVoterToken()
-      const { data, error: rpcErr } = await supabase.rpc('finalize_election', {
-        p_election_id: electionMeta.id,
-        p_voter_token: token
-      })
-      if (rpcErr) throw rpcErr
-      if (data?.error) {
-        // Ainda há outras sessões pendentes (votadas em outras janelas
-        // que ainda não foram concluídas) - não é um erro real, só
-        // significa que este código ainda não pode ser bloqueado.
-        setPhase('done')
-        return
-      }
-      setFinalReceipt(data)
-      setPhase('final')
-    } catch (e) {
-      setError(e.message || 'Erro ao finalizar a votação')
-      setPhase('error')
-    }
   }
 
   if (phase === 'resolving') return <LoadingBlock />
@@ -210,8 +164,9 @@ export default function SessionVoteFlow({ slug }) {
         election={{ name: electionMeta.name, code_digits: electionMeta.code_digits }}
         onValidated={handleCodeValidated}
         hideBack
+        onEncerrar={() => { try { window.close() } catch (_) { /* ignore */ } }}
         subtitle={<>Digite o código de {Math.min(8, Math.max(4, electionMeta.code_digits || 4))} dígitos fornecido pela mesa para votar em <b>{session.title}</b> ({electionMeta.name}).</>}
-        infoText={<>Este link vale só para <b>{session.title}</b>. O código pode ser usado em outras sessões desta eleição (cada uma com seu próprio link), mas apenas <b>uma vez em cada uma</b>.</>}
+        infoText={<>O código dá acesso à votação de <b>{session.title}</b> e só pode ser usado <b>uma única vez</b> nesta sessão.</>}
       />
     )
   }
@@ -222,6 +177,7 @@ export default function SessionVoteFlow({ slug }) {
         election={{ name: electionMeta.name }}
         session={session}
         onVoted={handleVoted}
+        onEncerrar={() => { try { window.close() } catch (_) { /* ignore */ } }}
       />
     )
   }
@@ -231,9 +187,7 @@ export default function SessionVoteFlow({ slug }) {
       <SessionDoneScreen
         session={session}
         result={lastResult}
-        isLast={isLastPending}
         standalone
-        onFinalize={handleFinalize}
         onViewReceipt={() => setPhase('sessionReceipt')}
       />
     )
@@ -245,16 +199,6 @@ export default function SessionVoteFlow({ slug }) {
         electionName={electionMeta.name}
         session={session}
         result={lastResult}
-        standalone
-      />
-    )
-  }
-
-  if (phase === 'final' && finalReceipt) {
-    return (
-      <FinalScreen
-        election={{ name: electionMeta.name }}
-        receipt={finalReceipt}
         standalone
       />
     )

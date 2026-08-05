@@ -967,7 +967,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
             </div>
 
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600 mb-4">
-              🔗 Cada sessão tem um <b>link próprio</b>, pensado para ser aberto em uma janela dedicada (uma urna por cargo, por exemplo). Cada janela exige o código de novo; o mesmo código vale para quantas sessões forem necessárias, mas só pode ser usado uma vez em cada uma.
+              🔗 Cada sessão tem um <b>link próprio</b> e independente, pensado para ser aberto em uma janela dedicada (uma urna por cargo, por exemplo). Cada janela exige o código e gera seu próprio comprovante (código VS-...), sem depender de nenhuma outra sessão.
             </div>
 
             <div className="space-y-2">

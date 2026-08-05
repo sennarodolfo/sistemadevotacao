@@ -19,7 +19,7 @@ const BOX_SIZE_BY_LEN = {
   8: { box: 38, text: 'text-xl' }
 }
 
-export default function CodeEntryScreen({ election, onValidated, onBack, hideBack, subtitle, infoText }) {
+export default function CodeEntryScreen({ election, onValidated, onBack, hideBack, subtitle, infoText, onEncerrar }) {
   const codeLength = Math.min(8, Math.max(4, election?.code_digits || 4))
   const [digits, setDigits] = useState(() => Array(codeLength).fill(''))
   const [error, setError] = useState('')
@@ -153,6 +153,16 @@ export default function CodeEntryScreen({ election, onValidated, onBack, hideBac
               className="flex-1 border border-slate-300 py-3 rounded-lg text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
               Voltar
+            </button>
+          )}
+          {hideBack && onEncerrar && (
+            <button
+              type="button"
+              onClick={onEncerrar}
+              disabled={loading}
+              className="flex-1 border border-slate-300 py-3 rounded-lg text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Encerrar Votação
             </button>
           )}
           <button

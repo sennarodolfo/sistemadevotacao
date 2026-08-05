@@ -8,7 +8,7 @@ Sistema de votação eletrônica **multi-sessão** com backend em **Supabase** (
 ## ✨ Funcionalidades
 
 - ✅ Modo multiusuário: qualquer pessoa cria sua conta (e-mail + senha) e gerencia suas próprias eleições, isoladas das demais, com link de votação próprio para compartilhar — continua 100% compatível com o modo clássico de "uma eleição só"
-- ✅ **Link individual por sessão** (`seuprojeto.vercel.app/nome-da-sessao`): cada sessão pode ser votada em sua própria janela/aba, ideal para ter uma urna dedicada por cargo. Cada janela exige o código de novo — o mesmo código vale para quantas sessões forem necessárias, mas só pode ser usado uma vez em cada uma
+- ✅ **Link individual por sessão** (`seuprojeto.vercel.app/nome-da-sessao`): cada sessão é votada em janela própria e independente, com código, comprovante (`VS-...`) e botão de encerrar exclusivos dela — ideal para ter uma urna dedicada por cargo
 - ✅ Múltiplas sessões de votação em uma mesma eleição (ex: Presbíteros, Diáconos, etc.)
 - ✅ Eleição por assembleia: número de membros presentes por sessão, com percentual de cada candidato calculado sobre esse total (não sobre o total de votos) e indicação de "Eleito" (50% + 1)
 - ✅ Auditoria exportável em PDF, além da lista no painel
@@ -238,13 +238,12 @@ Pensado para o caso de ter **uma urna física por cargo** (um notebook/tablet po
 
 - O link de cada sessão aparece na aba **"Sessões de Votação"** do painel admin, logo abaixo do nome dela, com botões para copiar e abrir em nova janela.
 - O slug (a parte final do link) é gerado automaticamente a partir do título da sessão ao criá-la ou editá-la — mas pode ser digitado manualmente no campo "Link da sessão" do formulário. Se o slug escolhido já estiver em uso (em qualquer eleição), o sistema acrescenta um número no final automaticamente (`-2`, `-3`, ...).
-- **Cada janela aberta com esse link exige o código de votação de novo**, mesmo que o eleitor já tenha votado em outra sessão nesta mesma eleição em outra janela/aba — o sistema nunca reaproveita um código já digitado em outro link.
-- O código continua sendo o mesmo de sempre e **vale para quantas sessões forem necessárias**; ele só é bloqueado definitivamente quando **todas** as sessões ativas da eleição forem concluídas (em qualquer combinação de janelas/links) — exatamente a mesma regra do fluxo clássico, só que agora também vale entre janelas diferentes.
-- Cada código só pode ser usado **uma única vez em cada sessão** — se tentar votar de novo na mesma sessão com o mesmo código, o sistema mostra o voto já registrado em vez de deixar votar de novo.
-- Ao votar em uma sessão que **não** é a última pendente daquele código, o eleitor vê um botão **"Ver Comprovante de Votação"** com o código daquela sessão específica (formato `VS-YYYYMMDD-XXXXXX`) — o mesmo comprovante que já existia por sessão (gerado pelo `submit_vote`), agora com tela própria e PDF para baixar/imprimir. Esse código é o que a aba **Auditoria** do painel admin usa para conferir os votos.
-- Ao concluir a última sessão pendente daquele código (em qualquer janela), o comprovante final da eleição é gerado normalmente, do mesmo jeito que no fluxo clássico.
+- Cada sessão é **totalmente independente**: a janela exige o código de votação, e o voto gera um comprovante próprio (`VS-YYYYMMDD-XXXXXX`) exclusivo daquela sessão — sem nenhuma referência a outras sessões da eleição.
+- Um código só pode ser usado **uma única vez em cada sessão** — se tentar votar de novo na mesma sessão com o mesmo código, o sistema mostra direto o comprovante já emitido em vez de deixar votar de novo.
+- Depois de votar, o eleitor vê um botão **"Ver Comprovante de Votação"** com o código daquela sessão específica — tela própria, com PDF para baixar/imprimir. Esse código é o que a aba **Auditoria** do painel admin lista, organizada por sessão.
+- Todas as telas dessa janela (código, votação, comprovante) têm um botão **"Encerrar Votação"**, para o eleitor fechar a janela quando quiser.
 
-**Compatibilidade:** o link geral da eleição (`#v/<id>`, com todas as sessões em sequência na mesma janela) continua funcionando normalmente — os dois modelos podem ser usados ao mesmo tempo, inclusive na mesma eleição.
+**Compatibilidade:** o link geral da eleição (`#v/<id>`, que percorre todas as sessões em sequência na mesma janela e gera o comprovante final `VT-...`) continua existindo como modo separado — os dois modelos podem ser usados ao mesmo tempo, inclusive na mesma eleição, mas não se misturam.
 
 ---
 

@@ -145,7 +145,9 @@ export default function SessionReceiptScreen({ electionName, session, result, st
         <div className="pt-2 border-t border-slate-200">
           <p className="text-xs text-slate-400 mb-3">Este código serve para conferência na Auditoria. Guarde-o.</p>
           {standalone ? (
-            <p className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3">Se precisar votar em outra sessão desta eleição, acesse o link próprio dela — o mesmo código continua valendo. Você já pode fechar esta janela.</p>
+            <button onClick={() => { try { window.close() } catch (_) { /* ignore */ } }} className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-lg font-semibold">
+              Encerrar Votação
+            </button>
           ) : (
             <button onClick={onBack} className="w-full border border-slate-300 py-3 rounded-lg text-slate-700 hover:bg-slate-50">
               Voltar

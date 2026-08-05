@@ -4,7 +4,7 @@ import PhotoLightbox from '../components/PhotoLightbox'
 import { supabase, ELECTION_ID } from '../lib/supabase'
 import { getVoterToken } from '../lib/api'
 
-export default function VotingScreen({ election, session, onVoted }) {
+export default function VotingScreen({ election, session, onVoted, onEncerrar }) {
   // A identificação do eleitor (voter_token) já foi validada antes de
   // chegar aqui, via o código de votação digitado na CodeEntryScreen.
   const [error, setError] = useState('')
@@ -182,6 +182,12 @@ export default function VotingScreen({ election, session, onVoted }) {
               {submitting ? 'Enviando...' : 'Confirmar Voto'}
             </button>
           </div>
+
+          {onEncerrar && (
+            <button onClick={onEncerrar} className="w-full mt-2 text-slate-400 hover:text-slate-600 text-xs py-2">
+              Encerrar Votação
+            </button>
+          )}
         </div>
       </div>
 
