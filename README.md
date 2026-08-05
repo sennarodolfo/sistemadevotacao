@@ -239,7 +239,8 @@ Pensado para o caso de ter **uma urna física por cargo** (um notebook/tablet po
 - **Cada janela aberta com esse link exige o código de votação de novo**, mesmo que o eleitor já tenha votado em outra sessão nesta mesma eleição em outra janela/aba — o sistema nunca reaproveita um código já digitado em outro link.
 - O código continua sendo o mesmo de sempre e **vale para quantas sessões forem necessárias**; ele só é bloqueado definitivamente quando **todas** as sessões ativas da eleição forem concluídas (em qualquer combinação de janelas/links) — exatamente a mesma regra do fluxo clássico, só que agora também vale entre janelas diferentes.
 - Cada código só pode ser usado **uma única vez em cada sessão** — se tentar votar de novo na mesma sessão com o mesmo código, o sistema mostra o voto já registrado em vez de deixar votar de novo.
-- Ao concluir a última sessão pendente daquele código (em qualquer janela), o comprovante final é gerado normalmente, do mesmo jeito que no fluxo clássico.
+- Ao votar em uma sessão que **não** é a última pendente daquele código, o eleitor vê um botão **"Ver Comprovante de Votação"** com o código daquela sessão específica (formato `VS-YYYYMMDD-XXXXXX`) — o mesmo comprovante que já existia por sessão (gerado pelo `submit_vote`), agora com tela própria e PDF para baixar/imprimir. Esse código é o que a aba **Auditoria** do painel admin usa para conferir os votos.
+- Ao concluir a última sessão pendente daquele código (em qualquer janela), o comprovante final da eleição é gerado normalmente, do mesmo jeito que no fluxo clássico.
 
 **Compatibilidade:** o link geral da eleição (`#v/<id>`, com todas as sessões em sequência na mesma janela) continua funcionando normalmente — os dois modelos podem ser usados ao mesmo tempo, inclusive na mesma eleição.
 

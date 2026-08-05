@@ -5,6 +5,7 @@ import { setVoterToken, getVoterToken, clearVoterToken } from '../lib/api'
 import CodeEntryScreen from './CodeEntryScreen'
 import VotingScreen from './VotingScreen'
 import SessionDoneScreen from './SessionDoneScreen'
+import SessionReceiptScreen from './SessionReceiptScreen'
 import FinalScreen from './FinalScreen'
 
 // ============================================================
@@ -69,7 +70,7 @@ export default function SessionVoteFlow({ slug }) {
   // Voltar do navegador e avisa antes de fechar/atualizar a aba,
   // igual ao fluxo clássico (ver App.jsx).
   useEffect(() => {
-    if (!['code', 'voting', 'done'].includes(phase)) return
+    if (!['code', 'voting', 'done', 'sessionReceipt'].includes(phase)) return
     function trapBack() { window.history.pushState(null, '', window.location.href) }
     window.history.pushState(null, '', window.location.href)
     window.addEventListener('popstate', trapBack)
@@ -233,6 +234,18 @@ export default function SessionVoteFlow({ slug }) {
         isLast={isLastPending}
         standalone
         onFinalize={handleFinalize}
+        onViewReceipt={() => setPhase('sessionReceipt')}
+      />
+    )
+  }
+
+  if (phase === 'sessionReceipt') {
+    return (
+      <SessionReceiptScreen
+        electionName={electionMeta.name}
+        session={session}
+        result={lastResult}
+        standalone
       />
     )
   }

@@ -1,6 +1,6 @@
 import { Icon } from '../components/Icon'
 
-export default function SessionDoneScreen({ session, result, isLast, onNext, onFinalize, standalone }) {
+export default function SessionDoneScreen({ session, result, isLast, onNext, onFinalize, onViewReceipt, standalone }) {
   const votedNames = result?.voted_candidates || []
   const blankCount = result?.blank_count || 0
 
@@ -35,9 +35,12 @@ export default function SessionDoneScreen({ session, result, isLast, onNext, onF
         )}
 
         {standalone && !isLast ? (
-          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-sm text-indigo-800">
-            Esta era só esta sessão. Se você precisa votar em outra sessão desta eleição, acesse o link próprio dela — o mesmo código continua valendo, feche esta janela quando quiser.
-          </div>
+          <button
+            onClick={onViewReceipt}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-semibold"
+          >
+            Ver Comprovante de Votação
+          </button>
         ) : (
           <button
             onClick={isLast ? onFinalize : onNext}
