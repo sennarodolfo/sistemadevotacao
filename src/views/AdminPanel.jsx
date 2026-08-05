@@ -54,7 +54,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
   const [messageType, setMessageType] = useState('success')
   const [results, setResults] = useState([])
   const [resultsSessionId, setResultsSessionId] = useState(null)
-  const [receipts, setReceipts] = useState([])
+  const [sessionReceipts, setSessionReceipts] = useState([])
   const [voteCheck, setVoteCheck] = useState(null)
   const [checkingVotes, setCheckingVotes] = useState(false)
   const [sessions, setSessions] = useState([])
@@ -199,8 +199,8 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
     setTab('audit')
     setVoteCheck(null)
     try {
-      const data = await callAdmin('admin_list_receipts', {})
-      setReceipts(data || [])
+      const data = await callAdmin('admin_list_session_receipts', {})
+      setSessionReceipts(data || [])
     } catch (e) { showMessage('Erro: ' + e.message, 'error') }
   }
 
@@ -215,15 +215,16 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       if (resultsData && resultsData.length > 0) setResultsSessionId(resultsData[0].session_id)
     } catch (_) { /* silencioso */ }
     try {
-      const receiptsData = await callAdmin('admin_list_receipts', {})
-      setReceipts(receiptsData || [])
+      const receiptsData = await callAdmin('admin_list_session_receipts', {})
+      setSessionReceipts(receiptsData || [])
     } catch (_) { /* silencioso */ }
     await refreshCodes()
     await refreshManualCodes()
   }
 
   function exportAuditPDF() {
-    if (receipts.length === 0) return showMessage('Nenhum comprovante para exportar', 'error')
+    const totalReceipts = sessionReceipts.reduce((n, s) => n + (s.receipts || []).length, 0)
+    if (totalReceipts === 0) return showMessage('Nenhum comprovante para exportar', 'error')
 
     const doc = new jsPDF({ orientation: 'landscape' })
     const margin = 10
@@ -236,20 +237,19 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       { label: 'Código', x: margin + 26, w: 16 },
       { label: 'Comprovante', x: margin + 42, w: 34 },
       { label: 'Data/Hora', x: margin + 76, w: 28 },
-      { label: 'Sessões Votadas', x: margin + 104, w: 48 },
-      { label: 'Candidatos Votados', x: margin + 152, w: pageW - margin - (margin + 152) }
+      { label: 'Candidatos Votados', x: margin + 104, w: pageW - margin - (margin + 104) }
     ]
 
-    function drawHeader() {
+    function drawHeader(sessionTitle) {
       doc.setFillColor(30, 58, 138)
       doc.rect(0, 0, pageW, 22, 'F')
       doc.setTextColor(255, 255, 255)
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(14)
-      doc.text('Auditoria de Comprovantes', pageW / 2, 12, { align: 'center' })
+      doc.text('Auditoria de Comprovantes', pageW / 2, 10, { align: 'center' })
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
-      doc.text(election?.name || '', pageW / 2, 18, { align: 'center' })
+      doc.text(`${election?.name || ''} — Sessão: ${sessionTitle}`, pageW / 2, 17, { align: 'center' })
 
       y = 30
       doc.setTextColor(0, 0, 0)
@@ -263,38 +263,38 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       doc.setFont('helvetica', 'normal')
     }
 
-    drawHeader()
+    let firstSection = true
+    sessionReceipts.forEach(s => {
+      const rows = s.receipts || []
+      if (rows.length === 0) return
+      if (!firstSection) doc.addPage()
+      firstSection = false
+      drawHeader(s.session_title)
 
-    receipts.forEach(r => {
-      const completions = r.session_completions || []
-      const origin = describeVoterOrigin(r.voter_token)
-      const sessionsText = completions.map(c => c.session_title).join(', ')
-      const candidatesText = completions
-        .map(c => `${c.session_title}: ${(c.voted_candidates || []).join(', ')}${c.blank_count > 0 ? ` + ${c.blank_count} branco(s)` : ''}`)
-        .join('; ')
-      const dateText = new Date(r.created_at).toLocaleString('pt-BR')
+      rows.forEach(r => {
+        const origin = describeVoterOrigin(r.voter_token)
+        const candidatesText = `${(r.voted_candidates || []).join(', ')}${r.blank_count > 0 ? ` + ${r.blank_count} branco(s)` : ''}`
+        const dateText = new Date(r.created_at).toLocaleString('pt-BR')
 
-      doc.setFontSize(7.5)
-      const sessionsLines = doc.splitTextToSize(sessionsText || '-', cols[4].w - 2)
-      const candidatesLines = doc.splitTextToSize(candidatesText || '-', cols[5].w - 2)
-      const rowLines = Math.max(1, sessionsLines.length, candidatesLines.length)
-      const rowHeight = rowLines * 3.5 + 2
+        doc.setFontSize(7.5)
+        const candidatesLines = doc.splitTextToSize(candidatesText || '-', cols[4].w - 2)
+        const rowHeight = Math.max(1, candidatesLines.length) * 3.5 + 2
 
-      if (y + rowHeight > pageH - margin) {
-        doc.addPage()
-        drawHeader()
-      }
+        if (y + rowHeight > pageH - margin) {
+          doc.addPage()
+          drawHeader(s.session_title)
+        }
 
-      doc.text(origin.label, cols[0].x, y + 3)
-      doc.text(origin.code, cols[1].x, y + 3)
-      doc.text(r.receipt_code, cols[2].x, y + 3)
-      doc.text(dateText, cols[3].x, y + 3)
-      doc.text(sessionsLines, cols[4].x, y + 3)
-      doc.text(candidatesLines, cols[5].x, y + 3)
+        doc.text(origin.label, cols[0].x, y + 3)
+        doc.text(origin.code, cols[1].x, y + 3)
+        doc.text(r.receipt_code, cols[2].x, y + 3)
+        doc.text(dateText, cols[3].x, y + 3)
+        doc.text(candidatesLines, cols[4].x, y + 3)
 
-      y += rowHeight
-      doc.setDrawColor(230)
-      doc.line(margin, y - 1, pageW - margin, y - 1)
+        y += rowHeight
+        doc.setDrawColor(230)
+        doc.line(margin, y - 1, pageW - margin, y - 1)
+      })
     })
 
     const slug = (election?.name || 'eleicao').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)
@@ -1422,7 +1422,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
         {tab === 'audit' && (
           <div className="bg-white card-shadow rounded-2xl p-6 fade-in">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-              <h2 className="text-lg font-bold text-slate-800">Comprovantes de Votação</h2>
+              <h2 className="text-lg font-bold text-slate-800">Comprovantes de Votação por Sessão</h2>
               <button
                 type="button"
                 onClick={exportAuditPDF}
@@ -1431,44 +1431,56 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                 <Icon name="download" className="w-4 h-4" /> Exportar Auditoria em PDF
               </button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-100 text-left">
-                    <th className="p-3 font-semibold">Origem</th>
-                    <th className="p-3 font-semibold">Código de Acesso</th>
-                    <th className="p-3 font-semibold">Comprovante</th>
-                    <th className="p-3 font-semibold">Data/Hora</th>
-                    <th className="p-3 font-semibold">Sessões Votadas</th>
-                    <th className="p-3 font-semibold">Candidatos Votados</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {receipts.length === 0 && (
-                    <tr><td colSpan="6" className="p-8 text-center text-slate-400">Nenhum comprovante emitido</td></tr>
-                  )}
-                  {receipts.map(r => {
-                    const completions = r.session_completions || []
-                    const origin = describeVoterOrigin(r.voter_token)
-                    return (
-                      <tr key={r.receipt_code} className="border-b hover:bg-slate-50">
-                        <td className="p-3">
-                          <span className={`text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${origin.badgeClass}`}>
-                            {origin.label}
-                          </span>
-                        </td>
-                        <td className="p-3 font-mono font-semibold tracking-widest text-slate-700">{origin.code}</td>
-                        <td className="p-3 font-mono text-indigo-700">{r.receipt_code}</td>
-                        <td className="p-3 text-xs">{new Date(r.created_at).toLocaleString('pt-BR')}</td>
-                        <td className="p-3 text-slate-700">{completions.map(c => c.session_title).join(', ')}</td>
-                        <td className="p-3 text-xs text-slate-600">
-                          {completions.map(c => `${c.session_title}: ${(c.voted_candidates || []).join(', ')}${c.blank_count > 0 ? ' + ' + c.blank_count + ' branco(s)' : ''}`).join('; ')}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+
+            {sessionReceipts.length === 0 && (
+              <p className="text-center text-slate-400 py-8">Nenhuma sessão cadastrada</p>
+            )}
+
+            <div className="space-y-6">
+              {sessionReceipts.map(s => (
+                <div key={s.session_id}>
+                  <h3 className="font-semibold text-slate-800 mb-2 flex items-center gap-2">
+                    {s.session_title}
+                    <span className="text-xs font-normal text-slate-400">{(s.receipts || []).length} comprovante(s)</span>
+                  </h3>
+                  <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-100 text-left">
+                          <th className="p-3 font-semibold">Origem</th>
+                          <th className="p-3 font-semibold">Código de Acesso</th>
+                          <th className="p-3 font-semibold">Comprovante</th>
+                          <th className="p-3 font-semibold">Data/Hora</th>
+                          <th className="p-3 font-semibold">Candidatos Votados</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(s.receipts || []).length === 0 && (
+                          <tr><td colSpan="5" className="p-6 text-center text-slate-400">Nenhum comprovante emitido nesta sessão</td></tr>
+                        )}
+                        {(s.receipts || []).map(r => {
+                          const origin = describeVoterOrigin(r.voter_token)
+                          return (
+                            <tr key={r.receipt_code} className="border-b last:border-b-0 hover:bg-slate-50">
+                              <td className="p-3">
+                                <span className={`text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${origin.badgeClass}`}>
+                                  {origin.label}
+                                </span>
+                              </td>
+                              <td className="p-3 font-mono font-semibold tracking-widest text-slate-700">{origin.code}</td>
+                              <td className="p-3 font-mono text-indigo-700">{r.receipt_code}</td>
+                              <td className="p-3 text-xs">{new Date(r.created_at).toLocaleString('pt-BR')}</td>
+                              <td className="p-3 text-xs text-slate-600">
+                                {(r.voted_candidates || []).join(', ')}{r.blank_count > 0 ? ` + ${r.blank_count} branco(s)` : ''}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="border-t pt-4 mt-6">
