@@ -45,13 +45,16 @@ export function computeBallotLayout(sessions, w = CELL_W, h = CELL_H, pad = BALL
   // de calcular a altura das linhas de candidato.
   const SEPARATOR_H = 1.8
   const numSeparators = Math.max(0, sessions.length - 1)
+  // Espaço reservado no rodapé para o código repetido (evita que a
+  // última linha de candidato encoste nele).
+  const FOOTER_H = 5
 
   let totalRows = 0
   sessions.forEach(s => {
     totalRows += 1
     totalRows += (s.candidates || []).length
   })
-  const availableH = (h - pad) - cy - (numSeparators * SEPARATOR_H)
+  const availableH = (h - pad) - cy - (numSeparators * SEPARATOR_H) - FOOTER_H
   const rawRowH = totalRows > 0 ? availableH / totalRows : availableH
   const rowH = Math.max(2.6, Math.min(5.5, rawRowH))
   const fontSize = Math.max(5, Math.min(7.5, rowH * 1.7))
@@ -103,12 +106,15 @@ export function buildManualBallotsPdf(codes, election) {
   const sessions = (election?.sessions || []).filter(s => s.is_active)
   const electionName = election?.name || 'Urna Eletrônica'
 
-  // Cada sessão é INDEPENDENTE, com seu próprio comprovante - então cada
-  // código gera UMA CÉDULA POR SESSÃO (todas com o mesmo código impresso),
-  // em vez de uma única cédula combinando todas as sessões.
+  // Cada CÉLULA (cédula impressa) tem seu próprio código, independente
+  // das demais - nenhum código se repete entre células, mesmo que
+  // pertençam a sessões diferentes. As sessões são distribuídas em
+  // rodízio entre os códigos disponíveis, então cada cédula continua
+  // sendo de UMA sessão só.
   const items = []
-  codes.forEach(code => {
-    sessions.forEach(session => items.push({ code, session }))
+  codes.forEach((code, idx) => {
+    const session = sessions[idx % sessions.length]
+    if (session) items.push({ code, session })
   })
 
   items.forEach((item, idx) => {
@@ -204,6 +210,14 @@ function drawBallot(doc, x, y, w, h, code, electionName, sessions) {
     const label = truncateToWidth(doc, box.candidate_name, box.labelMaxWidth)
     doc.text(label, x + box.labelX, y + box.labelY)
   })
+
+  // Código repetido na parte inferior, centralizado, em fonte menor
+  // (70% da fonte do código de cima) - facilita conferência mesmo se a
+  // cédula for cortada/dobrada de forma que o topo fique escondido.
+  doc.setTextColor(30, 41, 59)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(codeFontSize * 0.7)
+  doc.text(code.split('').join(codeSep), x + w / 2, y + h - pad - 1, { align: 'center' })
 }
 
 export function downloadManualBallotsPdf(codes, election, filename) {
