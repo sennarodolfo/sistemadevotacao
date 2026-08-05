@@ -4,7 +4,6 @@ import { supabase, setElectionId } from '../lib/supabase'
 import { getVoterToken, clearVoterToken } from '../lib/api'
 import CodeEntryScreen from './CodeEntryScreen'
 import VotingScreen from './VotingScreen'
-import SessionDoneScreen from './SessionDoneScreen'
 import SessionReceiptScreen from './SessionReceiptScreen'
 
 // ============================================================
@@ -65,7 +64,7 @@ export default function SessionVoteFlow({ slug }) {
   // "Modo urna" para esta janela: evita sair sem querer pelo botão
   // Voltar do navegador e avisa antes de fechar/atualizar a aba.
   useEffect(() => {
-    if (!['code', 'voting', 'done', 'sessionReceipt'].includes(phase)) return
+    if (!['code', 'voting', 'sessionReceipt'].includes(phase)) return
     function trapBack() { window.history.pushState(null, '', window.location.href) }
     window.history.pushState(null, '', window.location.href)
     window.addEventListener('popstate', trapBack)
@@ -134,7 +133,7 @@ export default function SessionVoteFlow({ slug }) {
 
   function handleVoted({ result }) {
     setLastResult(result)
-    setPhase('done')
+    setPhase('sessionReceipt')
   }
 
   if (phase === 'resolving') return <LoadingBlock />
@@ -178,17 +177,6 @@ export default function SessionVoteFlow({ slug }) {
         session={session}
         onVoted={handleVoted}
         onEncerrar={() => { try { window.close() } catch (_) { /* ignore */ } }}
-      />
-    )
-  }
-
-  if (phase === 'done') {
-    return (
-      <SessionDoneScreen
-        session={session}
-        result={lastResult}
-        standalone
-        onViewReceipt={() => setPhase('sessionReceipt')}
       />
     )
   }
