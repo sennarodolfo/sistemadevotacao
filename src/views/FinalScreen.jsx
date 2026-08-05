@@ -14,6 +14,10 @@ export default function FinalScreen({ election, receipt, onReset, standalone }) 
     }
   }
 
+  function encerrarVotacao() {
+    try { window.close() } catch (_) { /* ignore */ }
+  }
+
   function copyCode() {
     navigator.clipboard.writeText(receipt.receipt_code).then(() => {
       setCopied(true)
@@ -114,18 +118,20 @@ export default function FinalScreen({ election, receipt, onReset, standalone }) 
   }
 
   const completions = receipt.session_completions || []
+  const allVotedNames = [...new Set(completions.flatMap(sc => sc.voted_candidates || []))]
+  const totalBlank = completions.reduce((n, sc) => n + (sc.blank_count || 0), 0)
 
   return (
     <div className="min-h-screen gradient-bg flex items-center justify-center p-4">
       <div className="glass card-shadow rounded-2xl p-8 max-w-md w-full text-center fade-in">
         <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <Icon name="check" className="w-10 h-10 text-emerald-600" />
+          <Icon name={standalone ? 'shield' : 'check'} className="w-10 h-10 text-emerald-600" />
         </div>
-        <h1 className="text-2xl font-bold text-slate-800 mb-2">Votação Concluída!</h1>
-        <p className="text-slate-600 mb-4">Obrigado por participar. Abaixo está seu comprovante de votação.</p>
+        <h1 className="text-2xl font-bold text-slate-800 mb-1">Comprovante de Votação</h1>
+        <p className="text-slate-500 mb-4">{election?.name}</p>
 
         <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4">
-          <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Comprovante de Votação</p>
+          <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Código do Comprovante</p>
           <p className="text-2xl font-mono font-bold text-indigo-700 break-all">{receipt.receipt_code}</p>
         </div>
 
@@ -140,23 +146,31 @@ export default function FinalScreen({ election, receipt, onReset, standalone }) 
           </button>
         </div>
 
-        <div className="bg-slate-50 rounded-lg p-3 text-left">
-          <p className="text-xs font-semibold text-slate-500 mb-2 uppercase">Resumo</p>
-          {completions.map((sc, i) => (
-            <div key={i} className="text-xs text-slate-600 mb-2">
-              <p className="font-semibold">{sc.session_title}</p>
-              <p className="text-slate-500">
-                {(sc.voted_candidates || []).join(', ') || '—'}
-                {sc.blank_count > 0 && ` + ${sc.blank_count} branco(s)`}
-              </p>
-            </div>
-          ))}
-        </div>
+        {(allVotedNames.length > 0 || totalBlank > 0) && (
+          <div className="bg-slate-50 rounded-lg p-3 text-left mb-4">
+            <p className="text-xs font-semibold text-slate-500 mb-2 uppercase">Resumo do Voto</p>
+            {allVotedNames.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-1">
+                {allVotedNames.map((n, i) => (
+                  <span key={i} className="bg-indigo-100 text-indigo-800 text-xs px-2 py-1 rounded">{n}</span>
+                ))}
+              </div>
+            )}
+            {totalBlank > 0 && (
+              <p className="text-xs text-slate-500">+ {totalBlank} voto(s) em branco</p>
+            )}
+          </div>
+        )}
 
-        <div className="mt-5 pt-4 border-t border-slate-200">
-          <p className="text-xs text-slate-400 mb-2">Guarde ou anote seu código antes de continuar.</p>
+        <div className="pt-2 border-t border-slate-200">
+          <p className="text-xs text-slate-400 mb-3">Este código serve para conferência na Auditoria. Guarde-o.</p>
           {standalone ? (
-            <p className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3">Sua votação nesta eleição está completa. Você já pode fechar esta janela.</p>
+            <button
+              onClick={encerrarVotacao}
+              className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-lg font-semibold"
+            >
+              Encerrar Votação
+            </button>
           ) : (
             <button
               onClick={releaseForNextVoter}
