@@ -49,13 +49,12 @@ export function computeBallotLayout(sessions, w = CELL_W, h = CELL_H, pad = BALL
   let totalRows = 0
   sessions.forEach(s => {
     totalRows += 1
-    totalRows += Math.ceil((s.candidates || []).length / 2)
+    totalRows += (s.candidates || []).length
   })
   const availableH = (h - pad) - cy - (numSeparators * SEPARATOR_H)
   const rawRowH = totalRows > 0 ? availableH / totalRows : availableH
   const rowH = Math.max(2.6, Math.min(5.5, rawRowH))
   const fontSize = Math.max(5, Math.min(7.5, rowH * 1.7))
-  const colW = (w - pad * 2) / 2
 
   const candidateBoxes = []
   const sessionTitles = []
@@ -71,28 +70,24 @@ export function computeBallotLayout(sessions, w = CELL_W, h = CELL_H, pad = BALL
     cy += rowH
 
     const candidates = session.candidates || []
-    for (let i = 0; i < candidates.length; i += 2) {
-      const rowCandidates = [candidates[i], candidates[i + 1]]
+    candidates.forEach(c => {
       const rowY = cy
-      rowCandidates.forEach((c, colIdx) => {
-        if (!c) return
-        const cx = pad + colIdx * colW
-        const boxSize = rowH * 0.55
-        candidateBoxes.push({
-          session_id: session.id,
-          candidate_id: c.id,
-          candidate_name: c.name,
-          x: cx,
-          y: rowY + (rowH - boxSize) / 2,
-          size: boxSize,
-          rowY,
-          labelX: cx + boxSize + 1.2,
-          labelY: rowY + rowH * 0.72,
-          labelMaxWidth: colW - boxSize - 2
-        })
+      const cx = pad
+      const boxSize = rowH * 0.55
+      candidateBoxes.push({
+        session_id: session.id,
+        candidate_id: c.id,
+        candidate_name: c.name,
+        x: cx,
+        y: rowY + (rowH - boxSize) / 2,
+        size: boxSize,
+        rowY,
+        labelX: cx + boxSize + 1.2,
+        labelY: rowY + rowH * 0.72,
+        labelMaxWidth: (w - pad * 2) - boxSize - 2
       })
       cy += rowH
-    }
+    })
   })
 
   return { pad, rowH, fontSize, codeRegion, sessionTitles, candidateBoxes, separators }
@@ -162,12 +157,12 @@ function drawBallot(doc, x, y, w, h, code, electionName, sessions) {
   doc.setTextColor(79, 70, 229)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
-  doc.text('CÉDULA DE VOTAÇÃO MANUAL', x + pad, y + pad + 3)
+  doc.text('CÉDULA DE VOTAÇÃO MANUAL', x + w / 2, y + pad + 3, { align: 'center' })
 
   doc.setTextColor(100, 100, 100)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.5)
-  doc.text(truncateToWidth(doc, electionName, w - pad * 2), x + pad, y + pad + 7.5)
+  doc.text(truncateToWidth(doc, electionName, w - pad * 2), x + w / 2, y + pad + 7.5, { align: 'center' })
 
   doc.setTextColor(30, 41, 59)
   doc.setFont('helvetica', 'bold')
@@ -176,7 +171,7 @@ function drawBallot(doc, x, y, w, h, code, electionName, sessions) {
   const codeFontSize = code.length <= 4 ? 15 : code.length <= 6 ? 12 : 9
   const codeSep = code.length <= 5 ? ' ' : ''
   doc.setFontSize(codeFontSize)
-  doc.text(code.split('').join(codeSep), x + layout.codeRegion.x, y + layout.codeRegion.y + 6)
+  doc.text(code.split('').join(codeSep), x + layout.codeRegion.x + layout.codeRegion.w / 2, y + layout.codeRegion.y + 6, { align: 'center' })
 
   doc.setDrawColor(210, 210, 210)
   doc.setLineWidth(0.15)
@@ -203,6 +198,7 @@ function drawBallot(doc, x, y, w, h, code, electionName, sessions) {
   doc.setFontSize(layout.fontSize)
   doc.setTextColor(30, 41, 59)
   doc.setDrawColor(100, 100, 100)
+  doc.setLineWidth(0.15)
   layout.candidateBoxes.forEach(box => {
     doc.rect(x + box.x, y + box.y, box.size, box.size)
     const label = truncateToWidth(doc, box.candidate_name, box.labelMaxWidth)
