@@ -886,7 +886,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
                   className="w-32 px-3 py-2 border border-slate-300 rounded-lg"
                 />
                 <p className="text-xs text-slate-500 mt-1">
-                  Quantidade de membros presentes na assembleia — vale para <b>todas as sessões</b> desta eleição (não muda de uma sessão para outra). O percentual de cada candidato na apuração é calculado em cima deste número — ex: com 100 membros presentes, um candidato com 80 votos aparece com 80%. Também é a base do cálculo de maioria absoluta (50% + 1) usado para marcar candidatos como "Eleito" nos Resultados.
+                  Quantidade de membros presentes na assembleia — vale para <b>todas as sessões</b> desta eleição (não muda de uma sessão para outra). O percentual de cada candidato na apuração é calculado em cima deste número — ex: com 100 membros presentes, um candidato com 80 votos aparece com 80%. Também é a base do cálculo de 50% ou mais dos votos usado para marcar candidatos como "Eleito" nos Resultados.
                 </p>
               </div>
             </div>

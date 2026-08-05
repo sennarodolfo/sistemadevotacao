@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { Icon } from '../components/Icon'
 import PhotoLightbox from '../components/PhotoLightbox'
 import { supabase, ELECTION_ID } from '../lib/supabase'
@@ -6,7 +6,7 @@ import { supabase, ELECTION_ID } from '../lib/supabase'
 const CODE_ERROR_MESSAGES = {
   invalid_format: 'Digite todos os dígitos da cédula.',
   code_not_found: 'Cédula não encontrada. Verifique o código impresso.',
-  code_already_used: 'Esta cédula já concluiu a votação em todas as sessões e não pode ser usada novamente.'
+  code_already_used: 'Esta cédula já foi bloqueada e não pode ser usada novamente.'
 }
 
 // Tamanho de cada quadradinho conforme a quantidade de dígitos (definida
@@ -27,24 +27,19 @@ const VOTE_ERROR_MESSAGES = {
   already_voted: 'Esta cédula já votou nesta sessão.'
 }
 
-function findNextPendingIdx(sessions, completed) {
-  for (let i = 0; i < sessions.length; i++) {
-    if (!completed.some(c => c.session_id === sessions[i].id)) return i
-  }
-  return -1
-}
-
-// Página do mesário (#votacaomanual). O código da cédula é digitado UMA
-// ÚNICA VEZ e libera TODAS as sessões em sequência - exatamente como o
-// eleitor digital - reaproveitando as mesmas RPCs (submit_vote,
-// get_voter_status, finalize_election). O código vem de um espaço
-// totalmente separado dos códigos do eleitor (redeem_manual_code /
-// tabela manual_ballot_codes), então nunca colide com eles.
+// Página do mesário (#votacaomanual). As sessões são INDEPENDENTES: o
+// mesário primeiro escolhe QUAL sessão vai computar, depois digita o
+// código daquela cédula (impressa só para aquela sessão) e lança os
+// votos. Ao concluir, NÃO avança para outra sessão - a opção é lançar
+// uma NOVA cédula para a mesma sessão atual, ou trocar de sessão.
 export default function ManualVotingScreen({ election, onClose }) {
   const activeSessions = (election?.sessions || []).filter(s => s.is_active)
   const codeLength = Math.min(8, Math.max(4, election?.code_digits || 4))
 
-  const [phase, setPhase] = useState('codeEntry') // codeEntry | voting | ballotDone
+  const [selectedSessionId, setSelectedSessionId] = useState(null)
+  const session = activeSessions.find(s => s.id === selectedSessionId) || null
+
+  const [phase, setPhase] = useState('sessionPick') // sessionPick | codeEntry | voting | ballotDone
   const [ballotCount, setBallotCount] = useState(0)
 
   // ----- Entrada do código -----
@@ -56,19 +51,18 @@ export default function ManualVotingScreen({ election, onClose }) {
   // ----- Estado da cédula em processamento -----
   const [token, setToken] = useState(null)
   const [currentCode, setCurrentCode] = useState('')
-  const [completed, setCompleted] = useState([])
-  const [sessionIdx, setSessionIdx] = useState(0)
+  const [receiptCode, setReceiptCode] = useState('')
   const [selected, setSelected] = useState([])
   const [voteError, setVoteError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [zoomCandidate, setZoomCandidate] = useState(null)
 
-  const session = activeSessions[sessionIdx] || null
-
-  useEffect(() => {
-    setSelected([])
-    setVoteError('')
-  }, [sessionIdx])
+  function pickSession(id) {
+    setSelectedSessionId(id)
+    setDigits(Array(codeLength).fill(''))
+    setCodeError('')
+    setPhase('codeEntry')
+  }
 
   function focusInput(idx) {
     inputsRef.current[idx]?.focus()
@@ -108,8 +102,8 @@ export default function ManualVotingScreen({ election, onClose }) {
       setCodeError('Digite todos os dígitos da cédula.')
       return
     }
-    if (activeSessions.length === 0) {
-      setCodeError('Nenhuma sessão de votação ativa no momento.')
+    if (!session) {
+      setCodeError('Nenhuma sessão selecionada.')
       return
     }
     setCodeError('')
@@ -126,20 +120,24 @@ export default function ManualVotingScreen({ election, onClose }) {
         focusInput(0)
         return
       }
-      // O código pode estar sendo retomado (já votou em algumas sessões
-      // antes de parar) - busca o status real em vez de presumir zerado.
+      // Confere se esta cédula já votou NESTA sessão (pode ter sido
+      // reaproveitada por engano) antes de deixar lançar de novo.
       const { data: status, error: statusErr } = await supabase.rpc('get_voter_status', {
         p_election_id: ELECTION_ID,
         p_voter_token: data.voter_token
       })
       if (statusErr) throw statusErr
-      const realCompleted = status?.completed || []
+      const already = (status?.completed || []).find(c => c.session_id === session.id)
       setToken(data.voter_token)
       setCurrentCode(code)
-      setCompleted(realCompleted)
-      const nextIdx = findNextPendingIdx(activeSessions, realCompleted)
-      setSessionIdx(nextIdx === -1 ? 0 : nextIdx)
       setDigits(Array(codeLength).fill(''))
+      if (already) {
+        setReceiptCode(already.receipt_code || '')
+        setPhase('ballotDone')
+        return
+      }
+      setSelected([])
+      setVoteError('')
       setPhase('voting')
     } catch (e) {
       setCodeError(e.message || 'Erro ao validar a cédula.')
@@ -210,15 +208,9 @@ export default function ManualVotingScreen({ election, onClose }) {
       if (rpcErr) throw rpcErr
       if (data?.error) throw new Error(VOTE_ERROR_MESSAGES[data.error] || data.error)
 
-      const newCompleted = [...completed, { session_id: session.id }]
-      setCompleted(newCompleted)
-
-      const nextIdx = findNextPendingIdx(activeSessions, newCompleted)
-      if (nextIdx === -1) {
-        await finalizeBallot()
-      } else {
-        setSessionIdx(nextIdx)
-      }
+      setReceiptCode(data.session_receipt || '')
+      setBallotCount(n => n + 1)
+      setPhase('ballotDone')
     } catch (e) {
       setVoteError(e.message || 'Erro ao registrar o voto.')
     } finally {
@@ -226,30 +218,24 @@ export default function ManualVotingScreen({ election, onClose }) {
     }
   }
 
-  async function finalizeBallot() {
-    try {
-      const { data, error: rpcErr } = await supabase.rpc('finalize_election', {
-        p_election_id: ELECTION_ID,
-        p_voter_token: token
-      })
-      if (rpcErr) throw rpcErr
-      if (data?.error) throw new Error(data.error)
-      setBallotCount(n => n + 1)
-      setPhase('ballotDone')
-    } catch (e) {
-      setVoteError(e.message || 'Erro ao concluir a cédula.')
-    }
-  }
-
-  function startNextBallot() {
+  function startNewBallotSameSession() {
     setToken(null)
     setCurrentCode('')
-    setCompleted([])
-    setSessionIdx(0)
+    setReceiptCode('')
     setSelected([])
     setVoteError('')
     setDigits(Array(codeLength).fill(''))
     setPhase('codeEntry')
+  }
+
+  function changeSession() {
+    setToken(null)
+    setCurrentCode('')
+    setReceiptCode('')
+    setSelected([])
+    setVoteError('')
+    setSelectedSessionId(null)
+    setPhase('sessionPick')
   }
 
   function handleClose() {
@@ -270,6 +256,49 @@ export default function ManualVotingScreen({ election, onClose }) {
     )
   }
 
+  // ===== Tela: escolher a sessão =====
+  if (phase === 'sessionPick') {
+    return (
+      <div className="min-h-screen gradient-bg flex items-center justify-center p-4">
+        <div className="glass card-shadow rounded-2xl p-8 max-w-md w-full fade-in">
+          <div className="text-center mb-6">
+            <div className="bg-indigo-600 text-white w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3">
+              <Icon name="edit" className="w-7 h-7" />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-900">Votação Manual</h1>
+            <p className="text-sm text-slate-500 mt-2">{election?.name}</p>
+            <p className="text-sm text-slate-500 mt-2">Qual sessão você vai computar agora?</p>
+          </div>
+
+          <div className="space-y-2 mb-4">
+            {activeSessions.map(s => (
+              <button
+                key={s.id}
+                onClick={() => pickSession(s.id)}
+                className="w-full text-left p-4 rounded-lg border-2 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 transition flex items-center justify-between"
+              >
+                <span className="font-semibold text-slate-800">{s.title}</span>
+                <Icon name="chevron-right" className="w-5 h-5 text-slate-400" />
+              </button>
+            ))}
+          </div>
+
+          {ballotCount > 0 && (
+            <p className="text-xs text-center text-slate-500 mb-4">Cédulas computadas nesta sessão de trabalho: <b>{ballotCount}</b></p>
+          )}
+
+          <button
+            type="button"
+            onClick={handleClose}
+            className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-lg font-semibold"
+          >
+            Concluir e Liberar Sistema
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   // ===== Tela: entrada do código da cédula =====
   if (phase === 'codeEntry') {
     return (
@@ -280,8 +309,9 @@ export default function ManualVotingScreen({ election, onClose }) {
               <Icon name="edit" className="w-7 h-7" />
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Votação Manual</h1>
-            <p className="text-sm text-slate-500 mt-2">
-              Digite o código de {codeLength} dígitos impresso na cédula de papel para liberar o lançamento dos votos em todas as sessões.
+            <p className="text-sm font-semibold text-indigo-700 mt-2">{session?.title}</p>
+            <p className="text-sm text-slate-500 mt-1">
+              Digite o código de {codeLength} dígitos impresso na cédula de papel desta sessão.
             </p>
           </div>
 
@@ -312,14 +342,14 @@ export default function ManualVotingScreen({ election, onClose }) {
           )}
 
           <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800 text-center mb-4">
-            🔒 Cada cédula tem um código próprio (diferente dos códigos do eleitor) e só é bloqueada <b>depois de concluir todas as sessões</b> — se parar no meio, digite o mesmo código novamente para continuar.
+            🔒 Esta cédula vale só para <b>{session?.title}</b> e só pode ser usada <b>uma única vez</b> nesta sessão.
           </div>
 
           {ballotCount > 0 && (
             <p className="text-xs text-center text-slate-500 mb-4">Cédulas computadas nesta sessão de trabalho: <b>{ballotCount}</b></p>
           )}
 
-          <div className="flex gap-2 mb-4">
+          <div className="flex gap-2 mb-2">
             <button
               type="button"
               onClick={redeemCode}
@@ -329,6 +359,10 @@ export default function ManualVotingScreen({ election, onClose }) {
               {redeeming ? 'Validando...' : 'Confirmar Cédula'}
             </button>
           </div>
+
+          <button type="button" onClick={changeSession} className="w-full border border-slate-300 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 text-sm mb-2">
+            Trocar de Sessão
+          </button>
 
           <button
             type="button"
@@ -350,12 +384,16 @@ export default function ManualVotingScreen({ election, onClose }) {
           <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <Icon name="check" className="w-8 h-8 text-emerald-600" />
           </div>
-          <h1 className="text-xl font-bold text-slate-800 mb-2">Cédula {currentCode} computada</h1>
-          <p className="text-slate-600 mb-1 text-sm">Todos os votos desta cédula foram registrados com sucesso.</p>
+          <h1 className="text-xl font-bold text-slate-800 mb-1">Cédula {currentCode} computada</h1>
+          <p className="text-slate-500 mb-1 text-sm">Sessão: <b>{session?.title}</b></p>
+          {receiptCode && <p className="text-xs text-slate-400 mb-4 font-mono">{receiptCode}</p>}
           <p className="text-slate-500 mb-6 text-sm">Cédulas computadas nesta sessão de trabalho: <b>{ballotCount}</b></p>
           <div className="flex flex-col gap-2">
-            <button onClick={startNextBallot} className="bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-semibold">
-              Computar Próxima Cédula
+            <button onClick={startNewBallotSameSession} className="bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-semibold">
+              Nova Votação — {session?.title}
+            </button>
+            <button onClick={changeSession} className="border border-slate-300 py-3 rounded-lg text-slate-700 hover:bg-slate-50 font-semibold">
+              Trocar de Sessão
             </button>
             <button onClick={handleClose} className="bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-lg font-semibold">
               Concluir e Liberar Sistema
@@ -377,7 +415,7 @@ export default function ManualVotingScreen({ election, onClose }) {
             </div>
             <h1 className="text-2xl font-bold text-slate-800">{session.title}</h1>
             <p className="text-slate-500 mt-1">{election.name}</p>
-            <p className="text-xs text-slate-400 mt-1">Cédula {currentCode} · Sessão {completed.length + 1} de {activeSessions.length}</p>
+            <p className="text-xs text-slate-400 mt-1">Cédula {currentCode}</p>
           </div>
 
           <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-sm text-amber-800 mb-4">
@@ -450,7 +488,7 @@ export default function ManualVotingScreen({ election, onClose }) {
               Limpar
             </button>
             <button onClick={submitSessionVote} disabled={submitting} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-semibold disabled:opacity-50">
-              {submitting ? 'Enviando...' : (completed.length + 1 >= activeSessions.length ? 'Confirmar e Concluir Cédula' : 'Confirmar e Ir para Próxima Sessão')}
+              {submitting ? 'Enviando...' : 'Confirmar Voto'}
             </button>
           </div>
         </div>

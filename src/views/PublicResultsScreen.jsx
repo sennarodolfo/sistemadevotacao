@@ -63,7 +63,7 @@ export default function PublicResultsScreen({ electionName, initialSessionId }) 
   const registeredVoters = session?.registered_voters ?? null
   const usingRegistered = !!(registeredVoters && registeredVoters > 0)
   const percentBase = usingRegistered ? registeredVoters : (totalValid + blank)
-  const electedThreshold = usingRegistered ? Math.floor(registeredVoters / 2) + 1 : null
+  const electedThreshold = usingRegistered ? Math.ceil(registeredVoters / 2) : null
 
   useEffect(() => {
     if (!canvasRef.current || !session) return
@@ -180,7 +180,7 @@ export default function PublicResultsScreen({ electionName, initialSessionId }) 
 
             {usingRegistered && (
               <p className="text-center text-slate-400 text-sm mb-6">
-                <b className="text-slate-200">{session.votes_required} vaga(s)</b> nesta sessão · Percentual sobre os <b className="text-slate-200">{registeredVoters} membros presentes</b> · Referência de maioria absoluta (50% + 1) = <b className="text-slate-200">{electedThreshold} voto(s)</b>
+                <b className="text-slate-200">{session.votes_required} vaga(s)</b> nesta sessão · Percentual sobre os <b className="text-slate-200">{registeredVoters} membros presentes</b> · Referência de eleição (&gt;= 50%) = <b className="text-slate-200">{electedThreshold} voto(s)</b>
               </p>
             )}
 

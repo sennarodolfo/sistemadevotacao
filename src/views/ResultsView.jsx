@@ -27,14 +27,14 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
   const percentBase = usingRegistered ? registeredVoters : totalAll
 
   // ===== "Eleito": precisa de DUAS condições ao mesmo tempo:
-  //   1) Atingir maioria absoluta (50% + 1) sobre os membros presentes.
+  //   1) Atingir 50% ou mais dos votos sobre os membros presentes.
   //   2) Estar entre os mais votados, respeitando o limite de vagas da
   //      sessão (votos obrigatórios) - se mais candidatos do que vagas
-  //      baterem a maioria, só os N mais votados entre eles (N = vagas)
-  //      ficam marcados como eleitos; os demais, mesmo tendo maioria,
-  //      não entram porque não há vaga.
+  //      baterem os 50%, só os N mais votados entre eles (N = vagas)
+  //      ficam marcados como eleitos; os demais, mesmo tendo atingido
+  //      os 50%, não entram porque não há vaga.
   const seats = session?.votes_required || 0
-  const electedThreshold = usingRegistered ? Math.floor(registeredVoters / 2) + 1 : null
+  const electedThreshold = usingRegistered ? Math.ceil(registeredVoters / 2) : null
   const sortedCandidates = [...candidates].sort((a, b) => b.votes - a.votes)
   const qualifiedCandidates = usingRegistered ? sortedCandidates.filter(c => c.votes >= electedThreshold) : []
   const electedIds = new Set(qualifiedCandidates.slice(0, seats).map(c => c.id))
@@ -125,7 +125,7 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
   function exportExcel() {
     if (!session) return
     const rows = [
-      ['Posição', 'Candidato', 'Votos', '% Total', ...(usingRegistered ? ['Eleito (50%+1)'] : [])],
+      ['Posição', 'Candidato', 'Votos', '% Total', ...(usingRegistered ? ['Eleito (>=50%)'] : [])],
       ...sortedCandidates.map((c, i) => [
         i + 1,
         c.name,
@@ -140,8 +140,8 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
       rows.push(['Vagas (votos obrigatórios)', seats])
       rows.push(['Membros presentes', registeredVoters])
       rows.push(['Membros votantes', totalVoters])
-      rows.push(['Maioria absoluta (50% + 1)', electedThreshold])
-      rows.push(['Candidatos que atingiram maioria', qualifiedCandidates.length])
+      rows.push(['Mínimo para eleição (>= 50%)', electedThreshold])
+      rows.push(['Candidatos que atingiram 50%', qualifiedCandidates.length])
     }
     const ws = XLSX.utils.aoa_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -205,7 +205,7 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
       y += 10
       doc.setFont('helvetica', 'italic')
       doc.setFontSize(8)
-      doc.text(`Eleito = maioria absoluta sobre os ${registeredVoters} membros presentes (50% + 1 = ${electedThreshold} voto(s)) E entre os mais votados dentro do limite de ${seats} vaga(s).`, margin, y)
+      doc.text(`Eleito = 50% ou mais dos votos sobre os ${registeredVoters} membros presentes (>= ${electedThreshold} voto(s)) E entre os mais votados dentro do limite de ${seats} vaga(s).`, margin, y)
     }
 
     // Imagens dos gráficos
@@ -291,14 +291,14 @@ export default function ResultsView({ results, sessionId, onSelectSession, elect
 
       {usingRegistered ? (
         <p className="text-xs text-slate-500 mb-3">
-          <b>Eleito</b> = atinge maioria absoluta sobre os <b>{registeredVoters} membros presentes</b> (50% + 1 = <b>{electedThreshold} voto(s)</b>) <b>e</b> está entre os mais votados dentro do limite de <b>{seats} vaga(s)</b> desta sessão.
+          <b>Eleito</b> = atinge <b>50% ou mais</b> dos votos sobre os <b>{registeredVoters} membros presentes</b> (&gt;= <b>{electedThreshold} voto(s)</b>) <b>e</b> está entre os mais votados dentro do limite de <b>{seats} vaga(s)</b> desta sessão.
           {qualifiedCandidates.length > seats && (
-            <> {qualifiedCandidates.length - seats} candidato(s) atingiram a maioria mas ficaram fora por excederem o número de vagas.</>
+            <> {qualifiedCandidates.length - seats} candidato(s) atingiram os 50% mas ficaram fora por excederem o número de vagas.</>
           )}
         </p>
       ) : (
         <p className="text-xs text-slate-500 mb-3">
-          Informe o número de "membros presentes" na aba Sessões para calcular quem atinge maioria absoluta (50% + 1) e marcar como "Eleito".
+          Informe o número de "membros presentes" na aba Sessões para calcular quem atinge 50% ou mais dos votos e marcar como "Eleito".
         </p>
       )}
 
