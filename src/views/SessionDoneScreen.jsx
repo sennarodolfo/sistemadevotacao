@@ -35,20 +35,12 @@ export default function SessionDoneScreen({ session, result, isLast, onNext, onF
         )}
 
         {standalone && !isLast ? (
-          <div className="space-y-2">
-            <button
-              onClick={onViewReceipt}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-semibold"
-            >
-              Ver Comprovante de Votação
-            </button>
-            <button
-              onClick={() => { try { window.close() } catch (_) { /* ignore */ } }}
-              className="w-full border border-slate-300 py-3 rounded-lg text-slate-700 hover:bg-slate-50"
-            >
-              Encerrar Votação
-            </button>
-          </div>
+          <button
+            onClick={onViewReceipt}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-semibold"
+          >
+            Ver Comprovante de Votação
+          </button>
         ) : (
           <button
             onClick={isLast ? onFinalize : onNext}

@@ -163,7 +163,6 @@ export default function SessionVoteFlow({ slug }) {
         election={{ name: electionMeta.name, code_digits: electionMeta.code_digits }}
         onValidated={handleCodeValidated}
         hideBack
-        onEncerrar={() => { try { window.close() } catch (_) { /* ignore */ } }}
         subtitle={<>Digite o código de {Math.min(8, Math.max(4, electionMeta.code_digits || 4))} dígitos fornecido pela mesa para votar em <b>{session.title}</b> ({electionMeta.name}).</>}
         infoText={<>O código dá acesso à votação de <b>{session.title}</b> e só pode ser usado <b>uma única vez</b> nesta sessão.</>}
       />
@@ -176,7 +175,6 @@ export default function SessionVoteFlow({ slug }) {
         election={{ name: electionMeta.name }}
         session={session}
         onVoted={handleVoted}
-        onEncerrar={() => { try { window.close() } catch (_) { /* ignore */ } }}
       />
     )
   }
