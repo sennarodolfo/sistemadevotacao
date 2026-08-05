@@ -17,7 +17,7 @@ Sistema de votação eletrônica **multi-sessão** com backend em **Supabase** (
 - ✅ Autenticação do eleitor por código numérico configurável (4 a 8 dígitos, escolhido pelo admin), bloqueado apenas ao concluir TODAS as sessões — se parar no meio, pode retomar com o mesmo código em qualquer dispositivo
 - ✅ Geração em lote de códigos de votação com exportação em PDF pronto para impressão e recorte
 - ✅ Gestão individual de códigos: resetar (destravar sem apagar votos) ou apagar (remove o código e os votos feitos com ele) — inclusive em lote (todos de uma vez)
-- ✅ Módulo de cédulas manuais (`#votacaomanual`): códigos de 4 dígitos próprios e distintos dos códigos do eleitor, PDF com o código + lista de candidatos para marcação em papel, código digitado uma única vez libera todas as sessões, e aparece na Auditoria identificado como "Mesário (manual)"
+- ✅ Módulo de cédulas manuais (`#votacaomanual`): códigos próprios e distintos dos códigos do eleitor, gerando **uma cédula em papel por sessão** (mesmo código em todas), cada sessão computada de forma independente com seu próprio comprovante, listado na Auditoria como "Mesário (manual)"
 - ✅ Leitura de cédulas por foto (aba "Leitura de Cédulas"): fotografe ou envie a imagem de uma cédula manual preenchida — o sistema corrige a perspectiva, reconhece o código (OCR) e as marcações (leitura óptica), e o mesário confirma/corrige antes de os votos serem computados
 - ✅ Senha própria e independente para a página de votação manual, alterável pelo painel admin sem precisar da senha antiga
 - ✅ "Modo urna": bloqueia o botão Voltar do navegador e avisa antes de atualizar/fechar a aba, para o eleitor não perder o progresso da votação

@@ -14,30 +14,34 @@ const CORNER_LABELS = [
 const CODE_ERROR_MESSAGES = {
   invalid_format: 'Código reconhecido não tem dígitos válidos suficientes - corrija manualmente.',
   code_not_found: 'Código não encontrado. Confira se os dígitos foram lidos corretamente.',
-  code_already_used: 'Esta cédula já concluiu a votação em todas as sessões e não pode ser usada novamente.'
+  code_already_used: 'Este código já foi bloqueado e não pode ser usado novamente.'
 }
 
 const VOTE_ERROR_MESSAGES = {
-  wrong_count: 'Quantidade de votos incorreta para uma das sessões.',
-  invalid_candidate: 'Candidato inválido em uma das sessões.',
-  session_inactive: 'Uma das sessões está fechada.',
+  already_voted: 'Esta cédula já votou nesta sessão.',
+  wrong_count: 'Quantidade de votos incorreta.',
+  invalid_candidate: 'Candidato inválido selecionado.',
+  session_inactive: 'Esta sessão está fechada.',
   session_not_found: 'Sessão não encontrada.'
 }
 
-function groupMarksBySession(sessions, marks) {
-  return sessions.map(session => ({
+function groupMarksForSession(session, marks) {
+  return {
     session_id: session.id,
     title: session.title,
     votes_required: session.votes_required,
     candidates: marks
       .filter(m => m.session_id === session.id)
       .map(m => ({ candidate_id: m.candidate_id, name: m.candidate_name, marked: m.marked, darkness: m.darkness }))
-  }))
+  }
 }
 
 export default function BallotScanView({ election }) {
   const activeSessions = (election?.sessions || []).filter(s => s.is_active)
   const codeLength = Math.min(8, Math.max(4, election?.code_digits || 4))
+
+  const [selectedSessionId, setSelectedSessionId] = useState(activeSessions[0]?.id || '')
+  const selectedSession = activeSessions.find(s => s.id === selectedSessionId) || null
 
   const [step, setStep] = useState('capture') // capture | corners | processing | review | done
   const [error, setError] = useState('')
@@ -53,7 +57,7 @@ export default function BallotScanView({ election }) {
 
   const [recognizedCode, setRecognizedCode] = useState('')
   const [codeConfidence, setCodeConfidence] = useState(null)
-  const [sessionsReview, setSessionsReview] = useState([])
+  const [sessionReview, setSessionReview] = useState(null)
 
   const [submitting, setSubmitting] = useState(false)
   const [receiptCode, setReceiptCode] = useState('')
@@ -91,7 +95,7 @@ export default function BallotScanView({ election }) {
   }
 
   async function processBallot() {
-    if (corners.length !== 4) return
+    if (corners.length !== 4 || !selectedSession) return
     setStep('processing')
     setError('')
     try {
@@ -99,10 +103,10 @@ export default function BallotScanView({ election }) {
       warpedCanvasRef.current = warped
       setWarpedPreview(warped.toDataURL('image/jpeg', 0.85))
 
-      const marks = readMarks(warped, activeSessions)
-      setSessionsReview(groupMarksBySession(activeSessions, marks))
+      const marks = readMarks(warped, [selectedSession])
+      setSessionReview(groupMarksForSession(selectedSession, marks))
 
-      const codeResult = await readCode(warped, activeSessions, codeLength)
+      const codeResult = await readCode(warped, [selectedSession], codeLength)
       setRecognizedCode(codeResult.digits)
       setCodeConfidence(codeResult.confidence)
 
@@ -113,24 +117,26 @@ export default function BallotScanView({ election }) {
     }
   }
 
-  function toggleCandidate(sessionId, candidateId) {
-    setSessionsReview(prev => prev.map(s => {
-      if (s.session_id !== sessionId) return s
-      return { ...s, candidates: s.candidates.map(c => c.candidate_id === candidateId ? { ...c, marked: !c.marked } : c) }
+  function toggleCandidate(candidateId) {
+    setSessionReview(prev => prev && ({
+      ...prev,
+      candidates: prev.candidates.map(c => c.candidate_id === candidateId ? { ...c, marked: !c.marked } : c)
     }))
   }
 
-  const overvoteSessions = sessionsReview.filter(s => s.candidates.filter(c => c.marked).length > s.votes_required)
+  const markedCount = sessionReview ? sessionReview.candidates.filter(c => c.marked).length : 0
+  const isOvervote = sessionReview ? markedCount > sessionReview.votes_required : false
 
   async function confirmAndSubmit() {
     setError('')
+    if (!sessionReview) return
     const code = recognizedCode.replace(/[^0-9]/g, '')
     if (code.length !== codeLength) {
       setError(`O código precisa ter ${codeLength} dígitos. Corrija o campo antes de confirmar.`)
       return
     }
-    if (overvoteSessions.length > 0) {
-      setError(`Há mais candidatos marcados do que o permitido em: ${overvoteSessions.map(s => s.title).join(', ')}. Corrija antes de confirmar.`)
+    if (isOvervote) {
+      setError(`Há mais candidatos marcados do que o permitido (${sessionReview.votes_required}). Corrija antes de confirmar.`)
       return
     }
 
@@ -144,38 +150,21 @@ export default function BallotScanView({ election }) {
       if (redeemData?.error) throw new Error(CODE_ERROR_MESSAGES[redeemData.error] || redeemData.error)
       const token = redeemData.voter_token
 
-      const { data: status, error: statusErr } = await supabase.rpc('get_voter_status', {
+      const candidateIds = sessionReview.candidates.filter(c => c.marked).map(c => c.candidate_id)
+      const blankCount = Math.max(0, sessionReview.votes_required - candidateIds.length)
+      const { data: voteData, error: voteErr } = await supabase.rpc('submit_vote', {
         p_election_id: ELECTION_ID,
-        p_voter_token: token
+        p_session_id: sessionReview.session_id,
+        p_voter_token: token,
+        p_candidate_ids: candidateIds,
+        p_blank_count: blankCount,
+        p_voter_lat: null,
+        p_voter_lng: null
       })
-      if (statusErr) throw statusErr
-      const alreadyDone = new Set((status?.completed || []).map(c => c.session_id))
+      if (voteErr) throw voteErr
+      if (voteData?.error) throw new Error(VOTE_ERROR_MESSAGES[voteData.error] || voteData.error)
 
-      for (const s of sessionsReview) {
-        if (alreadyDone.has(s.session_id)) continue
-        const candidateIds = s.candidates.filter(c => c.marked).map(c => c.candidate_id)
-        const blankCount = Math.max(0, s.votes_required - candidateIds.length)
-        const { data: voteData, error: voteErr } = await supabase.rpc('submit_vote', {
-          p_election_id: ELECTION_ID,
-          p_session_id: s.session_id,
-          p_voter_token: token,
-          p_candidate_ids: candidateIds,
-          p_blank_count: blankCount,
-          p_voter_lat: null,
-          p_voter_lng: null
-        })
-        if (voteErr) throw voteErr
-        if (voteData?.error) throw new Error(`${s.title}: ${VOTE_ERROR_MESSAGES[voteData.error] || voteData.error}`)
-      }
-
-      const { data: finalData, error: finalErr } = await supabase.rpc('finalize_election', {
-        p_election_id: ELECTION_ID,
-        p_voter_token: token
-      })
-      if (finalErr) throw finalErr
-      if (finalData?.error) throw new Error(finalData.error)
-
-      setReceiptCode(finalData.receipt_code || '')
+      setReceiptCode(voteData.session_receipt || '')
       setProcessedCount(n => n + 1)
       setStep('done')
     } catch (e) {
@@ -194,7 +183,7 @@ export default function BallotScanView({ election }) {
     setWarpedPreview(null)
     setRecognizedCode('')
     setCodeConfidence(null)
-    setSessionsReview([])
+    setSessionReview(null)
     setReceiptCode('')
     if (fileInputRef.current) fileInputRef.current.value = ''
     if (cameraInputRef.current) cameraInputRef.current.value = ''
@@ -213,11 +202,25 @@ export default function BallotScanView({ election }) {
       <div>
         <h2 className="text-lg font-bold text-slate-800">Leitura de Cédulas por Foto</h2>
         <p className="text-sm text-slate-500 mt-1">
-          Fotografe ou envie a imagem de uma cédula manual preenchida. O sistema reconhece o código e as marcações automaticamente — você confere e confirma antes de os votos serem computados.
+          Cada cédula pertence a UMA sessão. Fotografe ou envie a imagem de uma cédula manual preenchida daquela sessão — o sistema reconhece o código e as marcações automaticamente, você confere e confirma antes de o voto ser computado.
         </p>
         {processedCount > 0 && (
           <p className="text-xs text-emerald-600 font-medium mt-1">✅ {processedCount} cédula(s) computada(s) nesta sessão de trabalho.</p>
         )}
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Sessão desta cédula</label>
+        <select
+          value={selectedSessionId}
+          onChange={e => setSelectedSessionId(e.target.value)}
+          disabled={step !== 'capture'}
+          className="w-full max-w-sm px-3 py-2 border border-slate-300 rounded-lg disabled:opacity-50 disabled:bg-slate-50"
+        >
+          {activeSessions.map(s => (
+            <option key={s.id} value={s.id}>{s.title}</option>
+          ))}
+        </select>
       </div>
 
       {error && (
@@ -306,7 +309,7 @@ export default function BallotScanView({ election }) {
         </div>
       )}
 
-      {step === 'review' && (
+      {step === 'review' && sessionReview && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-1">
@@ -335,38 +338,30 @@ export default function BallotScanView({ election }) {
                 <p className="text-xs text-slate-400 mt-1">Confira com o código impresso na cédula e corrija se necessário.</p>
               </div>
 
-              {overvoteSessions.length > 0 && (
+              {isOvervote && (
                 <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg p-2">
-                  ⚠️ Excesso de marcações em: {overvoteSessions.map(s => s.title).join(', ')}. Desmarque candidatos antes de confirmar.
+                  ⚠️ Excesso de marcações em {sessionReview.title}. Desmarque candidatos antes de confirmar.
                 </div>
               )}
 
-              <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
-                {sessionsReview.map(s => {
-                  const markedCount = s.candidates.filter(c => c.marked).length
-                  const over = markedCount > s.votes_required
-                  return (
-                    <div key={s.session_id} className={`border rounded-lg p-3 ${over ? 'border-red-300 bg-red-50/40' : 'border-slate-200'}`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="font-semibold text-sm text-slate-700">{s.title}</p>
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${over ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
-                          {markedCount}/{s.votes_required} marcados
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
-                        {s.candidates.map(c => (
-                          <label key={c.candidate_id} className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm ${c.marked ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}>
-                            <input type="checkbox" checked={c.marked} onChange={() => toggleCandidate(s.session_id, c.candidate_id)} className="w-4 h-4" />
-                            <span className={c.marked ? 'font-medium text-slate-800' : 'text-slate-600'}>{c.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                      {markedCount < s.votes_required && (
-                        <p className="text-xs text-slate-400 mt-1">{s.votes_required - markedCount} voto(s) em branco (nenhuma marcação reconhecida).</p>
-                      )}
-                    </div>
-                  )
-                })}
+              <div className={`border rounded-lg p-3 ${isOvervote ? 'border-red-300 bg-red-50/40' : 'border-slate-200'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="font-semibold text-sm text-slate-700">{sessionReview.title}</p>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${isOvervote ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                    {markedCount}/{sessionReview.votes_required} marcados
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                  {sessionReview.candidates.map(c => (
+                    <label key={c.candidate_id} className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm ${c.marked ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}>
+                      <input type="checkbox" checked={c.marked} onChange={() => toggleCandidate(c.candidate_id)} className="w-4 h-4" />
+                      <span className={c.marked ? 'font-medium text-slate-800' : 'text-slate-600'}>{c.name}</span>
+                    </label>
+                  ))}
+                </div>
+                {markedCount < sessionReview.votes_required && (
+                  <p className="text-xs text-slate-400 mt-1">{sessionReview.votes_required - markedCount} voto(s) em branco (nenhuma marcação reconhecida).</p>
+                )}
               </div>
             </div>
           </div>
@@ -381,7 +376,7 @@ export default function BallotScanView({ election }) {
               disabled={submitting}
               className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-lg font-semibold disabled:opacity-50"
             >
-              {submitting ? 'Registrando...' : 'Confirmar e Registrar Votos'}
+              {submitting ? 'Registrando...' : 'Confirmar e Registrar Voto'}
             </button>
           </div>
         </div>
@@ -392,7 +387,7 @@ export default function BallotScanView({ election }) {
           <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <Icon name="check" className="w-8 h-8 text-emerald-600" />
           </div>
-          <h3 className="text-lg font-bold text-slate-800 mb-1">Votos registrados com sucesso</h3>
+          <h3 className="text-lg font-bold text-slate-800 mb-1">Voto registrado com sucesso</h3>
           {receiptCode && <p className="text-sm text-slate-500 mb-6">Comprovante: <span className="font-mono text-indigo-700">{receiptCode}</span></p>}
           <button type="button" onClick={reset} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-semibold">
             Ler Próxima Cédula

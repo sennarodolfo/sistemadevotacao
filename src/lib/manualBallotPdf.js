@@ -108,14 +108,22 @@ export function buildManualBallotsPdf(codes, election) {
   const sessions = (election?.sessions || []).filter(s => s.is_active)
   const electionName = election?.name || 'Urna Eletrônica'
 
-  codes.forEach((code, idx) => {
+  // Cada sessão é INDEPENDENTE, com seu próprio comprovante - então cada
+  // código gera UMA CÉDULA POR SESSÃO (todas com o mesmo código impresso),
+  // em vez de uma única cédula combinando todas as sessões.
+  const items = []
+  codes.forEach(code => {
+    sessions.forEach(session => items.push({ code, session }))
+  })
+
+  items.forEach((item, idx) => {
     const posInPage = idx % CELLS_PER_PAGE
     if (idx > 0 && posInPage === 0) doc.addPage()
     const col = posInPage % COLS
     const row = Math.floor(posInPage / COLS)
     const x = PAGE_MARGIN + col * (cellW + CELL_GAP)
     const y = PAGE_MARGIN + row * (cellH + CELL_GAP)
-    drawBallot(doc, x, y, cellW, cellH, code, electionName, sessions)
+    drawBallot(doc, x, y, cellW, cellH, item.code, electionName, [item.session])
   })
 
   return doc

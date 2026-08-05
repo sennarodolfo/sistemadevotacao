@@ -105,9 +105,9 @@ export default function SessionReceiptScreen({ electionName, session, result, st
         <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
           <Icon name="shield" className="w-10 h-10 text-emerald-600" />
         </div>
-        <h1 className="text-2xl font-bold text-slate-800 mb-1">Comprovante de Votação</h1>
+        <h1 className="text-2xl font-bold text-slate-800 mb-1">Votação concluída</h1>
         <p className="text-slate-500 mb-4">
-          <b>{session?.title}</b> — {electionName}
+          Você votou para <b>{session?.title}</b>
         </p>
 
         <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4">

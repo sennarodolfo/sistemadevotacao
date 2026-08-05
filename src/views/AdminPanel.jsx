@@ -1220,7 +1220,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
             <div>
               <h2 className="text-lg font-bold text-slate-800">Cédulas Manuais</h2>
               <p className="text-sm text-slate-500 mt-1">
-                Gere cédulas de papel para votos computados pelo mesário na página <code>#votacaomanual</code>. Cada cédula tem um código numérico de {electionForm?.code_digits || 4} dígitos <b>próprio, diferente dos códigos do eleitor</b>, e o PDF já imprime o código junto com a lista de sessões e candidatos para marcação manual. A cédula só fica bloqueada depois de concluir todas as sessões — se parar no meio, o mesário pode digitar o mesmo código novamente para retomar.
+                Gere códigos para votos computados pelo mesário na página <code>#votacaomanual</code>. Cada código tem {electionForm?.code_digits || 4} dígitos <b>próprios, diferentes dos códigos do eleitor</b>, e gera <b>uma cédula em papel por sessão</b> (todas com o mesmo código) — cada sessão é votada e computada de forma independente, com seu próprio comprovante.
               </p>
             </div>
 
