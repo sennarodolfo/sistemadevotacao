@@ -32,9 +32,10 @@
 18. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0016_contas_usuario.sql` e rode (habilita o modo multiusuário — contas de organizador e eleições próprias).
 19. Em **Authentication → Providers**, confirme que **Email** está habilitado (vem assim por padrão). Em **Authentication → Settings**, decida se quer exigir confirmação de e-mail no cadastro (recomendado em produção).
 20. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0017_corrige_bug_votos_e_membros_presentes.sql` e rode (corrige um bug importante: editar uma sessão zerava os votos já registrados; move "membros presentes" para a aba Geral, valendo para todas as sessões).
-21. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
-22. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID` — **só necessário se for usar o modo clássico de uma eleição só**. No modo multiusuário (recomendado), pule este passo.
-23. **Settings → API** copie:
+21. **SQL Editor → New query**: cole o conteúdo de `supabase/migrations/0018_link_por_sessao.sql` e rode (cria o link individual de cada sessão, para votar em janela dedicada — ver seção "Link individual por sessão" no README).
+22. **SQL Editor → New query**: cole o conteúdo de `supabase/seed/seed.sql` e rode.
+23. Copie o UUID da eleição mostrado na mensagem final: este é seu `VITE_ELECTION_ID` — **só necessário se for usar o modo clássico de uma eleição só**. No modo multiusuário (recomendado), pule este passo.
+24. **Settings → API** copie:
    - **Project URL** → `VITE_SUPABASE_URL`
    - **anon public key** → `VITE_SUPABASE_ANON_KEY`
 

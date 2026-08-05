@@ -8,6 +8,7 @@ Sistema de votação eletrônica **multi-sessão** com backend em **Supabase** (
 ## ✨ Funcionalidades
 
 - ✅ Modo multiusuário: qualquer pessoa cria sua conta (e-mail + senha) e gerencia suas próprias eleições, isoladas das demais, com link de votação próprio para compartilhar — continua 100% compatível com o modo clássico de "uma eleição só"
+- ✅ **Link individual por sessão** (`seuprojeto.vercel.app/nome-da-sessao`): cada sessão pode ser votada em sua própria janela/aba, ideal para ter uma urna dedicada por cargo. Cada janela exige o código de novo — o mesmo código vale para quantas sessões forem necessárias, mas só pode ser usado uma vez em cada uma
 - ✅ Múltiplas sessões de votação em uma mesma eleição (ex: Presbíteros, Diáconos, etc.)
 - ✅ Eleição por assembleia: número de membros presentes por sessão, com percentual de cada candidato calculado sobre esse total (não sobre o total de votos) e indicação de "Eleito" (50% + 1)
 - ✅ Auditoria exportável em PDF, além da lista no painel
@@ -56,6 +57,7 @@ votacao-supabase/
 │   ├── migrations/0015_tamanho_codigo_configuravel.sql  # Tamanho do código configurável (4-8 dígitos)
 │   ├── migrations/0016_contas_usuario.sql     # Contas de usuário e eleições próprias (multiusuário)
 │   ├── migrations/0017_corrige_bug_votos_e_membros_presentes.sql  # Corrige perda de votos ao editar sessão + membros presentes por eleição
+│   ├── migrations/0018_link_por_sessao.sql    # Link individual por sessão (janela dedicada, código 1x por sessão)
 │   └── seed/seed.sql             # Dados iniciais
 ├── index.html
 ├── package.json
@@ -107,9 +109,10 @@ git push -u origin main
 19. Crie **outra** query, abra o arquivo `supabase/migrations/0015_tamanho_codigo_configuravel.sql`, copie todo o conteúdo e rode também (permite ao admin escolher de 4 a 8 dígitos para os códigos).
 20. Crie **outra** query, abra o arquivo `supabase/migrations/0016_contas_usuario.sql`, copie todo o conteúdo e rode também (habilita o modo multiusuário — veja a seção "Modo multiusuário" abaixo).
 21. Crie **outra** query, abra o arquivo `supabase/migrations/0017_corrige_bug_votos_e_membros_presentes.sql`, copie todo o conteúdo e rode também (corrige um bug importante: editar uma sessão zerava os votos já registrados; também move "membros presentes" para a aba Geral, valendo para todas as sessões).
-22. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
-23. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3 **só se for usar o modo clássico de uma eleição só** (veja abaixo).
-24. Vá em **Settings → API** e copie:
+22. Crie **outra** query, abra o arquivo `supabase/migrations/0018_link_por_sessao.sql`, copie todo o conteúdo e rode também (cria o link individual de cada sessão, para votar em janela dedicada — veja a seção "Link individual por sessão" abaixo).
+23. Crie **outra** query, abra o arquivo `supabase/seed/seed.sql`, copie todo o conteúdo e rode também.
+24. Após rodar o seed, a aba **"Messages"** (ou "Logs") embaixo vai mostrar o UUID da eleição criada. Copie esse UUID — você vai precisar dele no Passo 3 **só se for usar o modo clássico de uma eleição só** (veja abaixo).
+25. Vá em **Settings → API** e copie:
    - **Project URL** (ex: `https://abcdefgh.supabase.co`) — esse é o seu `VITE_SUPABASE_URL`
    - **anon public key** (uma string JWT longa começando com `eyJhbGc...`) — esse é o seu `VITE_SUPABASE_ANON_KEY`
 
@@ -216,6 +219,29 @@ A partir da migração `0016`, o sistema aceita **contas de usuário reais** (vi
 5. Os botões "Abrir Painel Admin" e "Votação Manual" no Dashboard levam direto para o painel daquela eleição específica (usando a senha gerada no passo 3).
 
 **Compatibilidade:** quem já roda o sistema no modo clássico (uma eleição só, com `VITE_ELECTION_ID` definido) **não precisa mudar nada** — continua funcionando exatamente como antes, em paralelo ao modo multiusuário.
+
+---
+
+## 🔗 Link individual por sessão (janela dedicada)
+
+Além do link geral da eleição (que leva o eleitor por todas as sessões, uma atrás da outra, na mesma janela), agora **cada sessão tem um link próprio**, no formato:
+
+```
+https://seuprojeto.vercel.app/nome-da-sessao
+```
+
+Pensado para o caso de ter **uma urna física por cargo** (um notebook/tablet por sessão, cada um já aberto no link daquela sessão específica), em vez de uma única urna que percorre todas as sessões em sequência.
+
+**Como funciona:**
+
+- O link de cada sessão aparece na aba **"Sessões de Votação"** do painel admin, logo abaixo do nome dela, com botões para copiar e abrir em nova janela.
+- O slug (a parte final do link) é gerado automaticamente a partir do título da sessão ao criá-la ou editá-la — mas pode ser digitado manualmente no campo "Link da sessão" do formulário. Se o slug escolhido já estiver em uso (em qualquer eleição), o sistema acrescenta um número no final automaticamente (`-2`, `-3`, ...).
+- **Cada janela aberta com esse link exige o código de votação de novo**, mesmo que o eleitor já tenha votado em outra sessão nesta mesma eleição em outra janela/aba — o sistema nunca reaproveita um código já digitado em outro link.
+- O código continua sendo o mesmo de sempre e **vale para quantas sessões forem necessárias**; ele só é bloqueado definitivamente quando **todas** as sessões ativas da eleição forem concluídas (em qualquer combinação de janelas/links) — exatamente a mesma regra do fluxo clássico, só que agora também vale entre janelas diferentes.
+- Cada código só pode ser usado **uma única vez em cada sessão** — se tentar votar de novo na mesma sessão com o mesmo código, o sistema mostra o voto já registrado em vez de deixar votar de novo.
+- Ao concluir a última sessão pendente daquele código (em qualquer janela), o comprovante final é gerado normalmente, do mesmo jeito que no fluxo clássico.
+
+**Compatibilidade:** o link geral da eleição (`#v/<id>`, com todas as sessões em sequência na mesma janela) continua funcionando normalmente — os dois modelos podem ser usados ao mesmo tempo, inclusive na mesma eleição.
 
 ---
 

@@ -13,6 +13,7 @@ import ManualVotingScreen from './views/ManualVotingScreen'
 import PublicResultsScreen from './views/PublicResultsScreen'
 import AuthScreen from './views/AuthScreen'
 import DashboardScreen from './views/DashboardScreen'
+import SessionVoteFlow from './views/SessionVoteFlow'
 
 function ConfigError({ message }) {
   return (
@@ -103,6 +104,17 @@ function parseHash() {
   return { route: null }
 }
 
+// Rota por CAMINHO (não por hash): link individual de sessão, no
+// formato https://seuprojeto.vercel.app/nome-da-sessao. Só reconhece
+// um único segmento sem ponto (para não capturar arquivos estáticos
+// tipo /favicon.ico) - qualquer outra coisa (raiz, ou caminho ausente)
+// cai no roteamento por hash de sempre.
+function parseSessionSlugFromPath() {
+  const seg = window.location.pathname.replace(/^\/+|\/+$/g, '')
+  if (!seg || seg.includes('/') || seg.includes('.')) return null
+  return seg
+}
+
 export default function App() {
   const [screen, setScreen] = useState('loading')
   const [election, setElection] = useState(null)
@@ -113,6 +125,7 @@ export default function App() {
   const [lastVotedResult, setLastVotedResult] = useState(null)
   const [finalReceipt, setFinalReceipt] = useState(null)
   const [publicResultsSessionId, setPublicResultsSessionId] = useState('')
+  const [sessionSlug, setSessionSlug] = useState(null)
   const [adminAuthOk, setAdminAuthOk] = useState(() => sessionStorage.getItem('admin_auth') === '1')
   const [manualAuthOk, setManualAuthOk] = useState(() => sessionStorage.getItem('manual_auth') === '1')
   const [authUser, setAuthUser] = useState(null)
@@ -168,6 +181,15 @@ export default function App() {
     if (!ENV_STATUS.ready) {
       setError(CONFIG_ERROR)
       setScreen('configError')
+      return
+    }
+    // Link individual de sessão (/nome-da-sessao) tem prioridade sobre
+    // qualquer outra rota - é uma janela autocontida, não usa o resto
+    // do estado deste componente.
+    const pathSlug = parseSessionSlugFromPath()
+    if (pathSlug) {
+      setSessionSlug(pathSlug)
+      setScreen('sessionLink')
       return
     }
     const r = parseHash()
@@ -521,6 +543,7 @@ export default function App() {
   }, [])
 
   if (screen === 'configError') return <ConfigError message={error} />
+  if (screen === 'sessionLink' && sessionSlug) return <SessionVoteFlow slug={sessionSlug} />
   if (screen === 'loading') return <LoadingScreen />
   if (screen === 'error') return <ErrorScreen error={error} onRetry={loadElection} />
 

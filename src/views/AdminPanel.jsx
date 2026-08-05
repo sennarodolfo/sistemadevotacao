@@ -626,24 +626,28 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
       const candidates = (form.candidates || [])
         .map(c => ({ id: c.id || null, name: (c.name || '').trim(), photo_url: c.photo_url || null }))
         .filter(c => c.name)
+      let data
       if (form.id) {
-        await callAdmin('admin_update_session', {
+        data = await callAdmin('admin_update_session', {
           p_session_id: form.id,
           p_title: form.title,
           p_votes_required: parseInt(form.votes_required),
           p_candidates: candidates,
-          p_is_active: form.is_active
+          p_is_active: form.is_active,
+          p_slug: form.slug || null
         })
       } else {
-        await callAdmin('admin_create_session', {
+        data = await callAdmin('admin_create_session', {
           p_title: form.title,
           p_votes_required: parseInt(form.votes_required),
-          p_candidates: candidates
+          p_candidates: candidates,
+          p_slug: form.slug || null
         })
       }
       setShowSessionModal(false)
       setEditingSession(null)
-      showMessage('Sessão salva')
+      const finalSlug = data?.slug
+      showMessage(finalSlug ? `Sessão salva. Link: ${window.location.origin}/${finalSlug}` : 'Sessão salva')
       await refreshData()
     } catch (e) { showMessage('Erro: ' + e.message, 'error') }
   }
@@ -952,7 +956,7 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
           <div className="bg-white card-shadow rounded-2xl p-6 fade-in">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-slate-800">Sessões de Votação</h2>
-              <button type="button" onClick={() => { setEditingSession({ title: '', votes_required: 1, candidates: [], is_active: true }); setShowSessionModal(true) }}
+              <button type="button" onClick={() => { setEditingSession({ title: '', votes_required: 1, candidates: [], is_active: true, slug: '' }); setShowSessionModal(true) }}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
                 <Icon name="plus" className="w-4 h-4" /> Nova Sessão
               </button>
@@ -962,29 +966,49 @@ export default function AdminPanel({ election, setElection, onLogout, onDataChan
               👥 Membros presentes: <b>{electionForm?.registered_voters ?? 'não definido'}</b> — vale para todas as sessões desta eleição. Para alterar, vá na aba "Geral".
             </div>
 
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600 mb-4">
+              🔗 Cada sessão tem um <b>link próprio</b>, pensado para ser aberto em uma janela dedicada (uma urna por cargo, por exemplo). Cada janela exige o código de novo; o mesmo código vale para quantas sessões forem necessárias, mas só pode ser usado uma vez em cada uma.
+            </div>
+
             <div className="space-y-2">
               {sessions.length === 0 && <p className="text-center text-slate-400 py-8">Nenhuma sessão cadastrada</p>}
-              {sessions.map((s, i) => (
-                <div key={s.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
-                  <div className="bg-indigo-100 text-indigo-700 font-bold w-8 h-8 rounded-full flex items-center justify-center">{i + 1}</div>
-                  <div className="flex-1">
-                    <p className="font-semibold">{s.title}</p>
-                    <p className="text-xs text-slate-500">
-                      {s.votes_required} voto(s) • {s.candidates?.length || 0} candidatos
-                    </p>
+              {sessions.map((s, i) => {
+                const link = `${window.location.origin}/${s.slug}`
+                return (
+                  <div key={s.id} className="p-3 bg-slate-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-indigo-100 text-indigo-700 font-bold w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0">{i + 1}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold">{s.title}</p>
+                        <p className="text-xs text-slate-500">
+                          {s.votes_required} voto(s) • {s.candidates?.length || 0} candidatos
+                        </p>
+                      </div>
+                      <button type="button" onClick={() => resetSession(s)} className="text-amber-600 hover:bg-amber-50 p-2 rounded" title="Reiniciar sessão">
+                        <Icon name="refresh" className="w-4 h-4" />
+                      </button>
+                      <button type="button" onClick={() => { setEditingSession({ ...s, candidates: (s.candidates || []).map(c => ({ id: c.id, name: c.name, photo_url: c.photo_url || null })) }); setShowSessionModal(true) }}
+                        className="text-blue-600 hover:bg-blue-50 p-2 rounded">
+                        <Icon name="edit" className="w-4 h-4" />
+                      </button>
+                      <button type="button" onClick={() => deleteSession(s)} className="text-red-600 hover:bg-red-50 p-2 rounded">
+                        <Icon name="trash" className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {s.slug && (
+                      <div className="flex items-center gap-2 mt-2 ml-11">
+                        <code className="text-xs bg-white border border-slate-200 rounded px-2 py-1 flex-1 truncate">{link}</code>
+                        <button type="button" onClick={() => navigator.clipboard?.writeText(link).then(() => showMessage('Link copiado'))} className="text-slate-500 hover:bg-slate-200 p-1.5 rounded" title="Copiar link">
+                          <Icon name="copy" className="w-4 h-4" />
+                        </button>
+                        <button type="button" onClick={() => window.open(link, '_blank')} className="text-slate-500 hover:bg-slate-200 p-1.5 rounded" title="Abrir em nova janela">
+                          <Icon name="external-link" className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <button type="button" onClick={() => resetSession(s)} className="text-amber-600 hover:bg-amber-50 p-2 rounded" title="Reiniciar sessão">
-                    <Icon name="refresh" className="w-4 h-4" />
-                  </button>
-                  <button type="button" onClick={() => { setEditingSession({ ...s, candidates: (s.candidates || []).map(c => ({ id: c.id, name: c.name, photo_url: c.photo_url || null })) }); setShowSessionModal(true) }}
-                    className="text-blue-600 hover:bg-blue-50 p-2 rounded">
-                    <Icon name="edit" className="w-4 h-4" />
-                  </button>
-                  <button type="button" onClick={() => deleteSession(s)} className="text-red-600 hover:bg-red-50 p-2 rounded">
-                    <Icon name="trash" className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+                )
+              })}
             </div>
 
             {showSessionModal && (
@@ -1645,8 +1669,28 @@ function CandidateRow({ candidate, index, onChange, onRemove, onZoom }) {
 }
 
 function SessionModal({ session, onSave, onClose }) {
-  const [form, setForm] = useState(session)
+  const [form, setForm] = useState({ slug: '', ...session })
   const [zoomCandidate, setZoomCandidate] = useState(null)
+  const [slugTouched, setSlugTouched] = useState(!!session.slug)
+
+  function slugify(text) {
+    return (text || '')
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-+|-+$)/g, '')
+  }
+
+  function updateTitle(title) {
+    setForm(prev => ({
+      ...prev,
+      title,
+      // Enquanto o admin não mexer manualmente no campo de link, ele
+      // acompanha o título digitado - assim que ele editar o slug à
+      // mão, paramos de sobrescrever (slugTouched).
+      slug: slugTouched ? prev.slug : slugify(title)
+    }))
+  }
 
   function updateCandidate(idx, next) {
     const list = [...form.candidates]
@@ -1670,8 +1714,22 @@ function SessionModal({ session, onSave, onClose }) {
         <div className="space-y-3">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Título</label>
-            <input type="text" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}
+            <input type="text" value={form.title} onChange={e => updateTitle(e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Ex: Presbíteros" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Link da sessão</label>
+            <div className="flex items-center gap-1 text-sm">
+              <span className="text-slate-400 whitespace-nowrap">{typeof window !== 'undefined' ? window.location.origin : ''}/</span>
+              <input
+                type="text"
+                value={form.slug || ''}
+                onChange={e => { setSlugTouched(true); setForm({ ...form, slug: slugify(e.target.value) }) }}
+                className="flex-1 min-w-0 px-3 py-2 border border-slate-300 rounded-lg font-mono text-sm"
+                placeholder="gerado automaticamente"
+              />
+            </div>
+            <p className="text-xs text-slate-500 mt-1">Cada sessão tem seu próprio link, para ser aberto em uma janela dedicada. Se deixar em branco, é gerado a partir do título; se já existir, um número é acrescentado no final.</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Votos obrigatórios: <b>{form.votes_required}</b></label>

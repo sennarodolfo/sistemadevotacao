@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Icon } from '../components/Icon'
 import jsPDF from 'jspdf'
 
-export default function FinalScreen({ election, receipt, onReset }) {
+export default function FinalScreen({ election, receipt, onReset, standalone }) {
   const [copied, setCopied] = useState(false)
   const [releasing, setReleasing] = useState(false)
 
@@ -155,13 +155,17 @@ export default function FinalScreen({ election, receipt, onReset }) {
 
         <div className="mt-5 pt-4 border-t border-slate-200">
           <p className="text-xs text-slate-400 mb-2">Guarde ou anote seu código antes de continuar.</p>
-          <button
-            onClick={releaseForNextVoter}
-            disabled={releasing}
-            className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-lg font-semibold disabled:opacity-50"
-          >
-            {releasing ? 'Fechando...' : 'Fechar Votação'}
-          </button>
+          {standalone ? (
+            <p className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3">Sua votação nesta eleição está completa. Você já pode fechar esta janela.</p>
+          ) : (
+            <button
+              onClick={releaseForNextVoter}
+              disabled={releasing}
+              className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-lg font-semibold disabled:opacity-50"
+            >
+              {releasing ? 'Fechando...' : 'Fechar Votação'}
+            </button>
+          )}
         </div>
       </div>
     </div>

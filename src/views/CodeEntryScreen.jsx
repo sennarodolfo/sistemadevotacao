@@ -19,7 +19,7 @@ const BOX_SIZE_BY_LEN = {
   8: { box: 38, text: 'text-xl' }
 }
 
-export default function CodeEntryScreen({ election, onValidated, onBack }) {
+export default function CodeEntryScreen({ election, onValidated, onBack, hideBack, subtitle, infoText }) {
   const codeLength = Math.min(8, Math.max(4, election?.code_digits || 4))
   const [digits, setDigits] = useState(() => Array(codeLength).fill(''))
   const [error, setError] = useState('')
@@ -107,8 +107,10 @@ export default function CodeEntryScreen({ election, onValidated, onBack }) {
           </div>
           <h1 className="text-2xl font-bold text-slate-900">Código de Votação</h1>
           <p className="text-sm text-slate-500 mt-2">
-            Digite o código de {codeLength} dígitos fornecido pela mesa para iniciar sua votação em{' '}
-            <b>{election?.name || 'Urna Eletrônica'}</b>.
+            {subtitle || (
+              <>Digite o código de {codeLength} dígitos fornecido pela mesa para iniciar sua votação em{' '}
+              <b>{election?.name || 'Urna Eletrônica'}</b>.</>
+            )}
           </p>
         </div>
 
@@ -139,18 +141,20 @@ export default function CodeEntryScreen({ election, onValidated, onBack }) {
         )}
 
         <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800 text-center mb-5">
-          🔒 O código libera o voto em todas as sessões desta urna. Ele só é bloqueado <b>depois de concluir todas as sessões</b> — se você parar no meio, pode digitá-lo novamente (inclusive em outro dispositivo) para continuar de onde parou.
+          🔒 {infoText || (<>O código libera o voto em todas as sessões desta urna. Ele só é bloqueado <b>depois de concluir todas as sessões</b> — se você parar no meio, pode digitá-lo novamente (inclusive em outro dispositivo) para continuar de onde parou.</>)}
         </div>
 
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onBack}
-            disabled={loading}
-            className="flex-1 border border-slate-300 py-3 rounded-lg text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            Voltar
-          </button>
+          {!hideBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              disabled={loading}
+              className="flex-1 border border-slate-300 py-3 rounded-lg text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Voltar
+            </button>
+          )}
           <button
             type="button"
             onClick={submitCode}

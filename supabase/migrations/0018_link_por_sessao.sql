@@ -1,82 +1,152 @@
 -- =================================================================
--- Migração 0017: Corrige perda de votos ao editar sessão + move
--- "membros presentes" para o nível da eleição (vale para todas as sessões)
+-- Migração 0018: Link individual por sessão (janela própria)
 -- =================================================================
--- BUG GRAVE encontrado: admin_update_session, ao salvar QUALQUER edição
--- de sessão (inclusive só mudar o número de membros presentes), sempre
--- fazia "DELETE de todos os candidatos + INSERT de volta com IDs NOVOS".
--- Como votes.candidate_id tem "on delete set null", isso desligava
--- (zerava) TODOS os votos já registrados daquela sessão a cada edição -
--- os votos continuavam existindo na tabela, mas órfãos (candidate_id
--- nulo), então paravam de contar para qualquer candidato.
+-- Até aqui, o eleitor digitava o código UMA vez e votava em todas as
+-- sessões sequencialmente na MESMA janela/aba. A partir de agora, cada
+-- sessão de votação passa a ter um LINK próprio e legível, no formato:
 --
--- Correção: admin_update_session agora faz UPSERT dos candidatos -
--- quem já existia (tem "id" e pertence à sessão) é ATUALIZADO no lugar
--- (preserva o ID, e portanto os votos já contados para ele); só quem é
--- novo na lista recebe um ID novo; só quem foi de fato removido da
--- lista é apagado (aí sim os votos dele ficam órfãos, o que é o
--- esperado quando o candidato deixa de existir).
+--     https://seuprojeto.vercel.app/nome-da-sessao
 --
--- Além disso: "membros presentes" deixa de ser um campo por SESSÃO e
--- passa a ser um campo único da ELEIÇÃO (aba "Geral"), usado para
--- calcular o percentual/maioria absoluta em TODAS as sessões - como
--- pedido, já que é o mesmo grupo de pessoas presentes na assembleia
--- inteira, não um número que muda sessão a sessão.
+-- Esse link é pensado para ser aberto em uma janela/aba dedicada por
+-- sessão (uma urna física por cargo, por exemplo). Cada janela exige
+-- que o eleitor digite o código NOVAMENTE, mesmo que ele já tenha
+-- votado em outra sessão nesta mesma eleição/dispositivo - ou seja, o
+-- código continua valendo para quantas sessões forem necessárias, mas
+-- só pode ser usado UMA VEZ POR SESSÃO. Isso já era garantido pelo
+-- banco (unique(voter_token, session_id) em voter_completions + a
+-- lógica de redeem_voter_code que só bloqueia o código quando TODAS as
+-- sessões da eleição forem concluídas - ver migração 0010); esta
+-- migração adiciona o que faltava: a identificação de cada sessão por
+-- um slug único e público, e uma função para resolver esse slug sem
+-- exigir senha (é um link de VOTAÇÃO, não de administração).
 -- =================================================================
 
-alter table public.elections add column if not exists registered_voters integer;
+create extension if not exists "unaccent";
 
--- Preenche o valor da eleição a partir do maior valor já configurado em
--- alguma sessão (dado antigo, para não perder configuração existente).
-update public.elections e
-set registered_voters = sub.max_rv
-from (
-  select election_id, max(registered_voters) as max_rv
-  from public.voting_sessions
-  where registered_voters is not null
-  group by election_id
-) sub
-where e.id = sub.election_id and e.registered_voters is null;
+-- ============== COLUNA: voting_sessions.slug ==============
+alter table public.voting_sessions add column if not exists slug text;
 
--- ============== admin_update_election: + p_registered_voters ==============
-drop function if exists public.admin_update_election(uuid, text, text, text, integer);
+-- ============== FUNÇÃO: slugify_text ==============
+-- Normaliza um texto livre (título da sessão) para um slug de URL:
+-- minúsculas, sem acento, só [a-z0-9-], sem hífens nas pontas.
+create or replace function public.slugify_text(p_text text)
+returns text as $$
+  select nullif(
+    regexp_replace(
+      regexp_replace(lower(unaccent(coalesce(p_text, ''))), '[^a-z0-9]+', '-', 'g'),
+      '(^-+|-+$)', '', 'g'
+    ),
+    ''
+  )
+$$ language sql stable;
 
-create or replace function public.admin_update_election(
-  p_election_id uuid,
-  p_password text,
-  p_name text,
-  p_location_name text,
-  p_code_digits integer,
-  p_registered_voters integer
-) returns json as $$
+-- ============== FUNÇÃO: ensure_unique_session_slug ==============
+-- Gera um slug único GLOBALMENTE (entre todas as eleições/sessões),
+-- já que o link final não carrega o ID da eleição. Se o slug base já
+-- existir (em outra sessão que não seja p_session_id), acrescenta um
+-- sufixo numérico (-2, -3, ...) até encontrar um livre.
+create or replace function public.ensure_unique_session_slug(p_base text, p_session_id uuid default null)
+returns text as $$
 declare
-  ok boolean;
+  v_base text;
+  v_candidate text;
+  v_n integer := 1;
 begin
-  ok := public.verify_admin(p_election_id, p_password);
-  if not ok then return json_build_object('error', 'unauthorized'); end if;
+  v_base := coalesce(public.slugify_text(p_base), 'sessao');
+  v_candidate := v_base;
+  while exists (
+    select 1 from public.voting_sessions
+    where slug = v_candidate and (p_session_id is null or id <> p_session_id)
+  ) loop
+    v_n := v_n + 1;
+    v_candidate := v_base || '-' || v_n;
+  end loop;
+  return v_candidate;
+end;
+$$ language plpgsql;
 
-  if p_code_digits is not null and (p_code_digits < 4 or p_code_digits > 8) then
-    return json_build_object('error', 'invalid_code_digits');
+-- ============== TRIGGER: preenche slug automaticamente ==============
+-- Rede de segurança para qualquer INSERT que não passe pelas RPCs
+-- admin_create_session/admin_import_election (ex: supabase/seed/seed.sql,
+-- que insere direto na tabela) - se o slug vier vazio, gera um a partir
+-- do título automaticamente, do mesmo jeito e com a mesma garantia de
+-- unicidade global usada nas RPCs.
+create or replace function public.set_default_session_slug()
+returns trigger as $$
+begin
+  if new.slug is null or trim(new.slug) = '' then
+    new.slug := public.ensure_unique_session_slug(new.title, new.id);
   end if;
-  if p_registered_voters is not null and p_registered_voters < 0 then
-    return json_build_object('error', 'invalid_registered_voters');
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_session_slug on public.voting_sessions;
+create trigger trg_session_slug
+  before insert or update on public.voting_sessions
+  for each row execute function public.set_default_session_slug();
+
+-- Preenche slug das sessões já existentes (uma de cada vez, para as
+-- checagens de unicidade enxergarem as anteriores já preenchidas).
+do $$
+declare
+  r record;
+begin
+  for r in select id, title from public.voting_sessions where slug is null order by created_at loop
+    update public.voting_sessions set slug = public.ensure_unique_session_slug(r.title, r.id) where id = r.id;
+  end loop;
+end $$;
+
+alter table public.voting_sessions alter column slug set not null;
+create unique index if not exists idx_sessions_slug on public.voting_sessions(slug);
+
+-- ============== RPC: resolve_session_link ==============
+-- Resolve um slug de URL (ex: "presbiteros-2026") para os dados
+-- públicos daquela sessão + da eleição. Pública (sem senha), assim
+-- como get_public_election - é o que qualquer pessoa com o link vê
+-- antes de digitar o código.
+create or replace function public.resolve_session_link(p_slug text)
+returns json as $$
+declare
+  result json;
+begin
+  select json_build_object(
+    'election_id', e.id,
+    'election_name', e.name,
+    'code_digits', e.code_digits,
+    'total_active_sessions', (
+      select count(*) from public.voting_sessions vs2
+      where vs2.election_id = e.id and vs2.is_active = true
+    ),
+    'session', json_build_object(
+      'id', vs.id,
+      'title', vs.title,
+      'description', vs.description,
+      'votes_required', vs.votes_required,
+      'is_active', vs.is_active,
+      'slug', vs.slug,
+      'candidates', coalesce(
+        (select json_agg(json_build_object('id', c.id, 'name', c.name, 'photo_url', c.photo_url) order by c.display_order)
+         from public.candidates c where c.session_id = vs.id),
+        '[]'::json
+      )
+    )
+  ) into result
+  from public.voting_sessions vs
+  join public.elections e on e.id = vs.election_id
+  where vs.slug = regexp_replace(lower(coalesce(p_slug, '')), '^/+|/+$', '', 'g');
+
+  if result is null then
+    return json_build_object('error', 'not_found');
   end if;
 
-  update public.elections
-    set name = p_name,
-        location_name = p_location_name,
-        code_digits = coalesce(p_code_digits, code_digits),
-        registered_voters = p_registered_voters,
-        updated_at = now()
-  where id = p_election_id;
-
-  return json_build_object('success', true);
+  return result;
 end;
 $$ language plpgsql security definer;
 
-grant execute on function public.admin_update_election(uuid, text, text, text, integer, integer) to anon, authenticated;
+grant execute on function public.resolve_session_link(text) to anon, authenticated;
 
--- ============== get_public_election: registered_voters no nível da eleição ==============
+-- ============== get_public_election: + slug por sessão ==============
 create or replace function public.get_public_election(p_election_id uuid)
 returns json as $$
 declare
@@ -98,6 +168,7 @@ begin
           vs.votes_required,
           vs.display_order,
           vs.is_active,
+          vs.slug,
           coalesce(
             (select json_agg(json_build_object('id', c.id, 'name', c.name, 'photo_url', c.photo_url) order by c.display_order)
              from public.candidates c where c.session_id = vs.id),
@@ -116,63 +187,22 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ============== admin_get_results: registered_voters vem da eleição ==============
-create or replace function public.admin_get_results(
-  p_election_id uuid,
-  p_password text
-) returns json as $$
-declare
-  ok boolean;
-  result json;
-  v_registered_voters integer;
-begin
-  ok := public.verify_admin(p_election_id, p_password);
-  if not ok then return json_build_object('error', 'unauthorized'); end if;
-
-  select registered_voters into v_registered_voters
-  from public.elections where id = p_election_id;
-
-  select json_agg(row_to_json(r)) into result
-  from (
-    select
-      vs.id as session_id,
-      vs.title,
-      vs.votes_required,
-      v_registered_voters as registered_voters,
-      vs.display_order,
-      coalesce(
-        (select json_agg(json_build_object('id', c.id, 'name', c.name, 'photo_url', c.photo_url, 'votes',
-          (select count(*) from public.votes v where v.candidate_id = c.id))
-          order by (select count(*) from public.votes v where v.candidate_id = c.id) desc)
-         from public.candidates c where c.session_id = vs.id),
-        '[]'::json
-      ) as candidates,
-      (select count(*) from public.votes v where v.session_id = vs.id and v.is_blank = true) as blank_votes,
-      (select count(distinct voter_token) from public.voter_completions where session_id = vs.id) as unique_voters
-    from public.voting_sessions vs
-    where vs.election_id = p_election_id
-    group by vs.id, vs.title, vs.votes_required, vs.display_order
-    order by vs.display_order
-  ) r;
-
-  return coalesce(result, '[]'::json);
-end;
-$$ language plpgsql security definer;
-
--- ============== admin_create_session: sem registered_voters (agora é da eleição) ==============
-drop function if exists public.admin_create_session(uuid, text, text, integer, integer, jsonb);
+-- ============== admin_create_session: + p_slug (opcional) ==============
+drop function if exists public.admin_create_session(uuid, text, text, integer, jsonb);
 
 create or replace function public.admin_create_session(
   p_election_id uuid,
   p_password text,
   p_title text,
   p_votes_required integer,
-  p_candidates jsonb
+  p_candidates jsonb,
+  p_slug text default null
 ) returns json as $$
 declare
   ok boolean;
   new_session_id uuid;
   new_order integer;
+  v_slug text;
 begin
   ok := public.verify_admin(p_election_id, p_password);
   if not ok then return json_build_object('error', 'unauthorized'); end if;
@@ -181,8 +211,10 @@ begin
   from public.voting_sessions
   where election_id = p_election_id;
 
-  insert into public.voting_sessions (election_id, title, votes_required, display_order)
-  values (p_election_id, p_title, p_votes_required, new_order)
+  v_slug := public.ensure_unique_session_slug(coalesce(nullif(trim(p_slug), ''), p_title));
+
+  insert into public.voting_sessions (election_id, title, votes_required, display_order, slug)
+  values (p_election_id, p_title, p_votes_required, new_order, v_slug)
   returning id into new_session_id;
 
   if p_candidates is not null then
@@ -192,14 +224,14 @@ begin
     where trim(coalesce(c->>'name', '')) <> '';
   end if;
 
-  return json_build_object('id', new_session_id);
+  return json_build_object('id', new_session_id, 'slug', v_slug);
 end;
 $$ language plpgsql security definer;
 
-grant execute on function public.admin_create_session(uuid, text, text, integer, jsonb) to anon, authenticated;
+grant execute on function public.admin_create_session(uuid, text, text, integer, jsonb, text) to anon, authenticated;
 
--- ============== admin_update_session: UPSERT de candidatos (corrige o bug) ==============
-drop function if exists public.admin_update_session(uuid, text, uuid, text, integer, integer, jsonb, boolean);
+-- ============== admin_update_session: + p_slug (opcional) ==============
+drop function if exists public.admin_update_session(uuid, text, uuid, text, integer, jsonb, boolean);
 
 create or replace function public.admin_update_session(
   p_election_id uuid,
@@ -208,8 +240,9 @@ create or replace function public.admin_update_session(
   p_title text,
   p_votes_required integer,
   p_candidates jsonb,
-  p_is_active boolean
-) returns boolean as $$
+  p_is_active boolean,
+  p_slug text default null
+) returns json as $$
 declare
   ok boolean;
   v_kept_ids uuid[] := '{}';
@@ -217,14 +250,18 @@ declare
   v_order integer := 0;
   v_id uuid;
   v_name text;
+  v_slug text;
 begin
   ok := public.verify_admin(p_election_id, p_password);
-  if not ok then return false; end if;
+  if not ok then return json_build_object('error', 'unauthorized'); end if;
+
+  v_slug := public.ensure_unique_session_slug(coalesce(nullif(trim(p_slug), ''), p_title), p_session_id);
 
   update public.voting_sessions
     set title = p_title,
         votes_required = p_votes_required,
-        is_active = p_is_active
+        is_active = p_is_active,
+        slug = v_slug
   where id = p_session_id and election_id = p_election_id;
 
   if p_candidates is not null then
@@ -239,9 +276,6 @@ begin
       if (c->>'id') is not null
          and exists (select 1 from public.candidates where id = (c->>'id')::uuid and session_id = p_session_id)
       then
-        -- Candidato já existia nesta sessão: ATUALIZA no lugar, preservando
-        -- o ID (e portanto os votos já registrados para ele) - é isso que
-        -- corrige o bug de votos "sumindo" ao editar a sessão.
         update public.candidates
           set name = v_name,
               photo_url = nullif(trim(coalesce(c->>'photo_url', '')), ''),
@@ -249,7 +283,6 @@ begin
           where id = (c->>'id')::uuid;
         v_kept_ids := array_append(v_kept_ids, (c->>'id')::uuid);
       else
-        -- Candidato novo (não tinha ID ou o ID não pertence a esta sessão): insere.
         insert into public.candidates (session_id, name, photo_url, display_order)
         values (p_session_id, v_name, nullif(trim(coalesce(c->>'photo_url', '')), ''), v_order)
         returning id into v_id;
@@ -257,21 +290,18 @@ begin
       end if;
     end loop;
 
-    -- Remove só quem realmente saiu da lista (não foi mantido/criado
-    -- acima) - os votos desse candidato ficam órfãos, o que é o
-    -- comportamento correto quando ele é removido de propósito.
     delete from public.candidates
     where session_id = p_session_id
       and not (id = any(v_kept_ids));
   end if;
 
-  return true;
+  return json_build_object('success', true, 'slug', v_slug);
 end;
 $$ language plpgsql security definer;
 
-grant execute on function public.admin_update_session(uuid, text, uuid, text, integer, jsonb, boolean) to anon, authenticated;
+grant execute on function public.admin_update_session(uuid, text, uuid, text, integer, jsonb, boolean, text) to anon, authenticated;
 
--- ============== admin_export_election: registered_voters no nível da eleição ==============
+-- ============== admin_export_election: + slug por sessão ==============
 create or replace function public.admin_export_election(
   p_election_id uuid,
   p_password text
@@ -284,7 +314,7 @@ begin
   if not ok then return json_build_object('error', 'unauthorized'); end if;
 
   select json_build_object(
-    'backup_version', 3,
+    'backup_version', 4,
     'exported_at', now(),
     'election', (
       select json_build_object(
@@ -305,6 +335,7 @@ begin
           'votes_required', vs.votes_required,
           'display_order', vs.display_order,
           'is_active', vs.is_active,
+          'slug', vs.slug,
           'candidates', (
             select coalesce(json_agg(
               json_build_object(
@@ -388,7 +419,14 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ============== admin_import_election: registered_voters no nível da eleição ==============
+-- ============== admin_import_election: restaura + gera/preserva slug por sessão ==============
+-- Corpo idêntico ao da migração 0017 (mesma lógica de restauração,
+-- incluindo o tratamento de erro), só acrescentando a coluna slug no
+-- INSERT de voting_sessions: usa o slug do backup se vier preenchido
+-- (backups feitos a partir desta migração em diante), senão gera um
+-- novo a partir do título - sempre garantindo unicidade global.
+drop function if exists public.admin_import_election(uuid, text, json);
+
 create or replace function public.admin_import_election(
   p_election_id uuid,
   p_password text,
@@ -414,6 +452,7 @@ declare
   v_manual_codes json;
   v_manual_code_count integer := 0;
   v_legacy_rv integer;
+  v_slug text;
 begin
   ok := public.verify_admin(p_election_id, p_password);
   if not ok then return json_build_object('error', 'unauthorized'); end if;
@@ -443,8 +482,10 @@ begin
 
     for v_session in select * from json_array_elements(v_sessions)
     loop
+      v_slug := public.ensure_unique_session_slug(coalesce(nullif(trim(v_session->>'slug'), ''), v_session->>'title'));
+
       insert into public.voting_sessions
-        (id, election_id, title, description, votes_required, display_order, is_active)
+        (id, election_id, title, description, votes_required, display_order, is_active, slug)
       values (
         coalesce((v_session->>'id')::uuid, gen_random_uuid()),
         p_election_id,
@@ -452,16 +493,13 @@ begin
         v_session->>'description',
         coalesce((v_session->>'votes_required')::integer, 1),
         coalesce((v_session->>'display_order')::integer, v_session_count),
-        coalesce((v_session->>'is_active')::boolean, true)
+        coalesce((v_session->>'is_active')::boolean, true),
+        v_slug
       )
       returning id into v_session_id;
 
       v_session_count := v_session_count + 1;
 
-      -- Compatibilidade com backups antigos (backup_version 2), que
-      -- guardavam "membros presentes" por sessão - se a eleição não
-      -- tiver o valor (backup ainda mais antigo ou vazio), aproveita o
-      -- primeiro valor de sessão encontrado.
       if v_legacy_rv is null and v_session->>'registered_voters' is not null then
         v_legacy_rv := nullif(v_session->>'registered_voters', '')::integer;
       end if;
@@ -604,9 +642,7 @@ $$ language plpgsql security definer;
 
 grant execute on function public.admin_import_election(uuid, text, json) to anon, authenticated;
 
--- Força o PostgREST a recarregar o cache do schema imediatamente. Sem
--- isso, a API às vezes continua "vendo" a assinatura antiga das funções
--- por alguns instantes (ou até a próxima operação de DDL), causando o
--- erro "Could not find the function ... in the schema cache" mesmo com
--- a migração já aplicada corretamente.
+-- Força o PostgREST a recarregar o cache do schema imediatamente (ver
+-- migração 0017) - evita "Could not find the function ... in the
+-- schema cache" logo após aplicar esta migração.
 NOTIFY pgrst, 'reload schema';
