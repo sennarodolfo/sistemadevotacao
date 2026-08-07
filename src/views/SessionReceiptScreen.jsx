@@ -10,9 +10,24 @@ import jsPDF from 'jspdf'
 // os votos, então serve como comprovante para fins de auditoria.
 export default function SessionReceiptScreen({ electionName, session, result, standalone, onBack }) {
   const [copied, setCopied] = useState(false)
+  const [closeFailed, setCloseFailed] = useState(false)
   const votedNames = result?.voted_candidates || []
   const blankCount = result?.blank_count || 0
   const receiptCode = result?.session_receipt
+
+  function encerrarVotacao() {
+    // A maioria dos navegadores (principalmente em celular) só deixa um
+    // script fechar a aba se ela tiver sido aberta por outro script -
+    // não quando o link foi aberto direto (clique, WhatsApp, digitado).
+    // O truque abaixo (window.open('', '_self') antes do close) engana
+    // esse bloqueio na maior parte dos casos; quando mesmo assim não
+    // funciona, mostramos o aviso para fechar manualmente.
+    try { window.open('', '_self') } catch (_) { /* ignore */ }
+    try { window.close() } catch (_) { /* ignore */ }
+    setTimeout(() => {
+      if (!document.hidden) setCloseFailed(true)
+    }, 350)
+  }
 
   function copyCode() {
     if (!receiptCode) return
@@ -145,9 +160,15 @@ export default function SessionReceiptScreen({ electionName, session, result, st
         <div className="pt-2 border-t border-slate-200">
           <p className="text-xs text-slate-400 mb-3">Este código serve para conferência na Auditoria. Guarde-o.</p>
           {standalone ? (
-            <button onClick={() => { try { window.close() } catch (_) { /* ignore */ } }} className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-lg font-semibold">
-              Encerrar Votação
-            </button>
+            closeFailed ? (
+              <div className="bg-slate-100 text-slate-600 text-sm rounded-lg p-3">
+                Não foi possível fechar automaticamente. Você já pode fechar esta aba manualmente.
+              </div>
+            ) : (
+              <button onClick={encerrarVotacao} className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-lg font-semibold">
+                Encerrar Votação
+              </button>
+            )
           ) : (
             <button onClick={onBack} className="w-full border border-slate-300 py-3 rounded-lg text-slate-700 hover:bg-slate-50">
               Voltar

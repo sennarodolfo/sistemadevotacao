@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../components/Icon'
 import { supabase, setElectionId } from '../lib/supabase'
 import { getVoterToken, clearVoterToken } from '../lib/api'
@@ -61,12 +61,19 @@ export default function SessionVoteFlow({ slug }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug])
 
-  // "Modo urna" para esta janela: evita sair sem querer pelo botão
-  // Voltar do navegador e avisa antes de fechar/atualizar a aba.
+  // "Modo urna" só enquanto o voto ainda não foi confirmado - evita
+  // sair sem querer pelo botão Voltar do navegador ou fechar a aba no
+  // meio da votação. Empurra UMA entrada de histórico só na primeira
+  // vez (nunca a cada troca de tela), pra não acumular histórico e
+  // atrapalhar o fechamento automático da aba depois, no comprovante.
+  const historyGuardedRef = useRef(false)
   useEffect(() => {
-    if (!['code', 'voting', 'sessionReceipt'].includes(phase)) return
+    if (!['code', 'voting'].includes(phase)) return
+    if (!historyGuardedRef.current) {
+      window.history.pushState(null, '', window.location.href)
+      historyGuardedRef.current = true
+    }
     function trapBack() { window.history.pushState(null, '', window.location.href) }
-    window.history.pushState(null, '', window.location.href)
     window.addEventListener('popstate', trapBack)
     function warnBeforeUnload(e) { e.preventDefault(); e.returnValue = ''; return '' }
     window.addEventListener('beforeunload', warnBeforeUnload)
