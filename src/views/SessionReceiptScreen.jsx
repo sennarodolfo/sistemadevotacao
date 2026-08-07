@@ -18,15 +18,20 @@ export default function SessionReceiptScreen({ electionName, session, result, st
   function encerrarVotacao() {
     // A maioria dos navegadores (principalmente em celular) só deixa um
     // script fechar a aba se ela tiver sido aberta por outro script -
-    // não quando o link foi aberto direto (clique, WhatsApp, digitado).
-    // O truque abaixo (window.open('', '_self') antes do close) engana
-    // esse bloqueio na maior parte dos casos; quando mesmo assim não
-    // funciona, mostramos o aviso para fechar manualmente.
-    try { window.open('', '_self') } catch (_) { /* ignore */ }
-    try { window.close() } catch (_) { /* ignore */ }
-    setTimeout(() => {
-      if (!document.hidden) setCloseFailed(true)
-    }, 350)
+    // nunca quando foi aberta direto (clique, WhatsApp, digitado). Isso
+    // é bloqueio intencional do navegador, não tem contorno confiável
+    // em JavaScript. Então só tentamos fechar de fato quando dá pra
+    // saber que vai funcionar (window.opener existe); no caso comum de
+    // celular, já mostramos direto a mensagem de conclusão, sem fingir
+    // que vai fechar sozinho.
+    if (window.opener) {
+      try { window.close() } catch (_) { /* ignore */ }
+      setTimeout(() => {
+        if (!document.hidden) setCloseFailed(true)
+      }, 350)
+    } else {
+      setCloseFailed(true)
+    }
   }
 
   function copyCode() {
@@ -161,8 +166,8 @@ export default function SessionReceiptScreen({ electionName, session, result, st
           <p className="text-xs text-slate-400 mb-3">Este código serve para conferência na Auditoria. Guarde-o.</p>
           {standalone ? (
             closeFailed ? (
-              <div className="bg-slate-100 text-slate-600 text-sm rounded-lg p-3">
-                Não foi possível fechar automaticamente. Você já pode fechar esta aba manualmente.
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-lg p-3">
+                ✅ Voto registrado! Você já pode fechar esta aba quando quiser.
               </div>
             ) : (
               <button onClick={encerrarVotacao} className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-lg font-semibold">
